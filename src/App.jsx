@@ -165,6 +165,7 @@ export default function App() {
   const [adminTab, setAdminTab] = useState("settle");
   const [adminPin, setAdminPin] = useState("");
   const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [leaderboardVisible, setLeaderboardVisible] = useState(true);
   const [editingMarket, setEditingMarket] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [editSubtitle, setEditSubtitle] = useState("");
@@ -186,14 +187,16 @@ export default function App() {
   useEffect(() => {
     // Step 1: initial load with get() — reliable, same as before
     (async () => {
-      const [u, m, b] = await Promise.all([
+      const [u, m, b, lv] = await Promise.all([
         storageGet("mln_users"),
         storageGet("mln_markets"),
         storageGet("mln_bets"),
+        storageGet("mln_leaderboard_visible"),
       ]);
       if (u) setUsers(u);
       if (m) setMarkets(m);
       setBets(Array.isArray(b) ? b : []);
+      if (lv !== null) setLeaderboardVisible(lv);
       setLoading(false);
     })();
 
@@ -208,8 +211,11 @@ export default function App() {
       const v = snap.exists() ? parseFirebase(snap.val()) : [];
       setBets(Array.isArray(v) ? v : []);
     }, () => {});
+    const u4 = onValue(ref(db, "mln_leaderboard_visible"), snap => {
+      if (snap.exists()) setLeaderboardVisible(parseFirebase(snap.val()));
+    }, () => {});
 
-    return () => { u1(); u2(); u3(); };
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
   // 30-minute inactivity timeout — kicks back to login so users get fresh data
@@ -345,6 +351,8 @@ export default function App() {
   const userBets = bets.filter(b => b.username === username);
   const leaderboard = Object.entries(users).sort((a, b) => b[1].balance - a[1].balance);
   const displayMarkets = activeTab === "games" ? markets.games : markets.futures;
+  // Redirect off leaderboard tab if admin hides it
+  useEffect(() => { if (!leaderboardVisible && activeTab === "leaderboard") setActiveTab("games"); }, [leaderboardVisible]);
 
   // ── Place bets ─────────────────────────────────────────────────────────────
 
@@ -482,6 +490,35 @@ export default function App() {
     notify(`Balance adjusted by ${delta >= 0 ? "+" : ""}$${delta.toFixed(2)}`);
   }
 
+  async function deleteUser(name) {
+    const newUsers = { ...users };
+    delete newUsers[name];
+    await saveUsers(newUsers);
+    // Void any pending bets for this user and refund nothing (they're deleted)
+    const newBets = bets.filter(b => b.username !== name);
+    await saveBets(newBets);
+    if (adjustingUser === name) setAdjustingUser(null);
+    notify(`${name} deleted`);
+  }
+
+  async function deleteUser(name) {
+    const newUsers = { ...users };
+    delete newUsers[name];
+    await saveUsers(newUsers);
+    // Also void all their pending bets and refund nothing (they're deleted)
+    const newBets = bets.filter(b => b.username !== name);
+    await saveBets(newBets);
+    if (adjustingUser === name) setAdjustingUser(null);
+    notify(`${name} deleted`);
+  }
+
+  async function toggleLeaderboard() {
+    const newVal = !leaderboardVisible;
+    setLeaderboardVisible(newVal);
+    await storageSet("mln_leaderboard_visible", newVal);
+    notify(newVal ? "Leaderboard visible to players" : "Leaderboard hidden from players");
+  }
+
   async function resetAll() {
     await saveMarkets({ ...INITIAL_MARKETS }); await saveBets([]);
     const r = {};
@@ -609,6 +646,8 @@ export default function App() {
                         <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px" }}
                           onClick={() => notify(`${name}'s PIN: ${u.pin || "none"}`, "success")}>PIN</button>
                         <button style={S.adjustBtn} onClick={() => { setAdjustingUser(adjustingUser === name ? null : name); setAdjustAmt(""); }}>±</button>
+                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px", color: "#f87171", borderColor: "#7f1d1d" }}
+                          onClick={() => { if (window.confirm(`Delete ${name}? This cannot be undone.`)) deleteUser(name); }}>✕</button>
                       </div>
                       {adjustingUser === name && (
                         <div style={S.adjustRow}>
@@ -760,7 +799,9 @@ export default function App() {
       </div>
 
       <div style={S.tabs}>
-        {[["games","🏟 Games"],["futures","🔮 Futures"],["leaderboard","🏅 Standings"],["mybets",`My Bets${userBets.length ? ` (${userBets.length})` : ""}`]].map(([key, label]) => (
+        {[["games","🏟 Games"],["futures","🔮 Futures"],["leaderboard","🏅 Standings"],["mybets",`My Bets${userBets.length ? ` (${userBets.length})` : ""}`]]
+          .filter(([key]) => key !== "leaderboard" || leaderboardVisible)
+          .map(([key, label]) => (
           <button key={key} style={{ ...S.tab, ...(activeTab === key ? S.tabActive : {}) }} onClick={() => setActiveTab(key)}>{label}</button>
         ))}
       </div>
