@@ -20,22 +20,22 @@ const db = getDatabase(firebaseApp);
 
 const INITIAL_MARKETS = {
   games: [
-    { id: "lsf1", type: "game", title: "Sea Serpents vs Melonheads", subtitle: "Lunar League · Semifinal", status: "open", winner: null, maxBet: null,
-      options: [{ id: "lsf1_ss", label: "Aruba Sea Serpents", odds: -225 }, { id: "lsf1_mel", label: "Melonheads", odds: +180 }] },
-    { id: "lsf2", type: "game", title: "Outbreak vs McDophers", subtitle: "Lunar League · Semifinal", status: "open", winner: null, maxBet: null,
-      options: [{ id: "lsf2_out", label: "Outbreak", odds: -110 }, { id: "lsf2_mcd", label: "Sopher McDophers", odds: -111 }] },
-    { id: "gsf1", type: "game", title: "Gorillas vs Slayers", subtitle: "Galactic League · Semifinal", status: "open", winner: null, maxBet: null,
-      options: [{ id: "gsf1_gor", label: "Gorillas", odds: -200 }, { id: "gsf1_sla", label: "Slayers", odds: +161 }] },
-    { id: "gsf2", type: "game", title: "Grizzlies vs Ancients", subtitle: "Galactic League · Semifinal", status: "open", winner: null, maxBet: null,
-      options: [{ id: "gsf2_gri", label: "Grizzlies", odds: -101 }, { id: "gsf2_anc", label: "Ancients", odds: -121 }] },
+    { id: "lsf1", type: "game", title: "Aruba Sea Serpents vs Humongous Melonheads", subtitle: "Lunar League · Semifinal", status: "open", winner: null, maxBet: null,
+      options: [{ id: "lsf1_ss", label: "Aruba Sea Serpents", odds: -225 }, { id: "lsf1_mel", label: "Humongous Melonheads", odds: +180 }] },
+    { id: "lsf2", type: "game", title: "Raccoon City Outbreak vs Sopher McDophers", subtitle: "Lunar League · Semifinal", status: "open", winner: null, maxBet: null,
+      options: [{ id: "lsf2_out", label: "Raccoon City Outbreak", odds: -110 }, { id: "lsf2_mcd", label: "Sopher McDophers", odds: -111 }] },
+    { id: "gsf1", type: "game", title: "Gas House Gorillas vs Sunnydale Slayers", subtitle: "Galactic League · Semifinal", status: "open", winner: null, maxBet: null,
+      options: [{ id: "gsf1_gor", label: "Gas House Gorillas", odds: -200 }, { id: "gsf1_sla", label: "Sunnydale Slayers", odds: +161 }] },
+    { id: "gsf2", type: "game", title: "Ursa Major Grizzlies vs R'lyeh Ancients", subtitle: "Galactic League · Semifinal", status: "open", winner: null, maxBet: null,
+      options: [{ id: "gsf2_gri", label: "Ursa Major Grizzlies", odds: -101 }, { id: "gsf2_anc", label: "R'lyeh Ancients", odds: -121 }] },
   ],
   futures: [
     { id: "lunar_champ", type: "future", title: "Lunar League Champion", subtitle: "Season Future", status: "open", winner: null, maxBet: null,
-      options: [{ id: "lc_ss", label: "Aruba Sea Serpents", odds: +165 }, { id: "lc_mcd", label: "Sopher McDophers", odds: +273 }, { id: "lc_out", label: "Outbreak", odds: +274 }, { id: "lc_mel", label: "Melonheads", odds: +631 }] },
+      options: [{ id: "lc_ss", label: "Aruba Sea Serpents", odds: +165 }, { id: "lc_mcd", label: "Sopher McDophers", odds: +273 }, { id: "lc_out", label: "Raccoon City Outbreak", odds: +274 }, { id: "lc_mel", label: "Humongous Melonheads", odds: +631 }] },
     { id: "galactic_champ", type: "future", title: "Galactic League Champion", subtitle: "Season Future", status: "open", winner: null, maxBet: null,
-      options: [{ id: "gc_gor", label: "Gorillas", odds: +178 }, { id: "gc_anc", label: "Ancients", odds: +251 }, { id: "gc_gri", label: "Grizzlies", odds: +298 }, { id: "gc_sla", label: "Slayers", odds: +549 }] },
+      options: [{ id: "gc_gor", label: "Gas House Gorillas", odds: +178 }, { id: "gc_anc", label: "R'lyeh Ancients", odds: +251 }, { id: "gc_gri", label: "Ursa Major Grizzlies", odds: +298 }, { id: "gc_sla", label: "Sunnydale Slayers", odds: +549 }] },
     { id: "toos", type: "future", title: "ToOS Winner", subtitle: "Championship Future", status: "open", winner: null, maxBet: null,
-      options: [{ id: "toos_ss", label: "Aruba Sea Serpents", odds: +340 }, { id: "toos_gor", label: "Gorillas", odds: +476 }, { id: "toos_mcd", label: "Sopher McDophers", odds: +571 }, { id: "toos_out", label: "Outbreak", odds: +573 }, { id: "toos_anc", label: "Ancients", odds: +674 }, { id: "toos_gri", label: "Grizzlies", odds: +820 }, { id: "toos_mel", label: "Melonheads", odds: +1570 }, { id: "toos_sla", label: "Slayers", odds: +1753 }] },
+      options: [{ id: "toos_ss", label: "Aruba Sea Serpents", odds: +340 }, { id: "toos_gor", label: "Gas House Gorillas", odds: +476 }, { id: "toos_mcd", label: "Sopher McDophers", odds: +571 }, { id: "toos_out", label: "Raccoon City Outbreak", odds: +573 }, { id: "toos_anc", label: "R'lyeh Ancients", odds: +674 }, { id: "toos_gri", label: "Ursa Major Grizzlies", odds: +820 }, { id: "toos_mel", label: "Humongous Melonheads", odds: +1570 }, { id: "toos_sla", label: "Sunnydale Slayers", odds: +1753 }] },
   ],
 };
 
@@ -635,7 +635,17 @@ export default function App() {
             {adminTab === "settle" && (
               <>
                 <div style={S.adminSection}>
-                  <p style={S.sectionHead}>LEADERBOARD</p>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <p style={{ ...S.sectionHead, margin: 0 }}>PLAYERS</p>
+                    <button
+                      onClick={toggleLeaderboard}
+                      style={{ ...S.adjustBtn, fontSize: 10, padding: "5px 12px",
+                        color: leaderboardVisible ? "#4ade80" : "#f59e0b",
+                        borderColor: leaderboardVisible ? "#166534" : "#92400e",
+                        background: leaderboardVisible ? "#0a1a0e" : "#1c1200" }}>
+                      {leaderboardVisible ? "👁 Standings ON" : "🙈 Standings OFF"}
+                    </button>
+                  </div>
                   {leaderboard.length === 0 && <p style={S.emptyText}>No players yet</p>}
                   {leaderboard.map(([name, u], i) => (
                     <div key={name}>
