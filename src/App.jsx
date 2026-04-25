@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, get } from "firebase/database";
+import { getDatabase, ref, set, get, onValue } from "firebase/database";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 // Replace each value below with the matching value from your Firebase console
 const firebaseConfig = {
-  apiKey: "AIzaSyClIKmR4FTthxNXtYJZS8Ef6U6RvcvBKGg",
+ apiKey: "AIzaSyClIKmR4FTthxNXtYJZS8Ef6U6RvcvBKGg",
   authDomain: "mln-betting.firebaseapp.com",
   databaseURL: "https://mln-betting-default-rtdb.firebaseio.com",
   projectId: "mln-betting",
@@ -70,11 +70,11 @@ function leagueMeta(subtitle = "") {
 async function storageGet(key) {
   try {
     const snap = await get(ref(db, key));
-    return snap.exists() ? snap.val() : null;
+    return snap.exists() ? JSON.parse(snap.val()) : null;
   } catch { return null; }
 }
 async function storageSet(key, value) {
-  try { await set(ref(db, key), value); } catch {}
+  try { await set(ref(db, key), JSON.stringify(value)); } catch {}
 }
 
 // ─── PIN Pad Component ────────────────────────────────────────────────────────
@@ -174,17 +174,47 @@ export default function App() {
   const [addMaxBet, setAddMaxBet] = useState("");
   const [futureOptions, setFutureOptions] = useState([{ label: "", odds: "" }, { label: "", odds: "" }]);
 
+  // Real-time Firebase listeners — all users see updates instantly
   useEffect(() => {
-    (async () => {
-      const u = await storageGet("mln_users");
-      const m = await storageGet("mln_markets");
-      const b = await storageGet("mln_bets");
-      if (u) setUsers(u);
-      if (m) setMarkets(m);
-      if (b) setBets(b);
-      setLoading(false);
-    })();
+    const unsub = [];
+    let initialLoads = 0;
+    const onLoaded = () => { initialLoads++; if (initialLoads >= 3) setLoading(false); };
+
+    unsub.push(onValue(ref(db, "mln_users"), snap => {
+      if (snap.exists()) setUsers(JSON.parse(snap.val())); onLoaded();
+    }));
+    unsub.push(onValue(ref(db, "mln_markets"), snap => {
+      if (snap.exists()) setMarkets(JSON.parse(snap.val())); onLoaded();
+    }));
+    unsub.push(onValue(ref(db, "mln_bets"), snap => {
+      setBets(snap.exists() ? JSON.parse(snap.val()) : []); onLoaded();
+    }));
+
+    return () => unsub.forEach(u => u());
   }, []);
+
+  // 30-minute inactivity timeout — kicks back to login so users get fresh data
+  useEffect(() => {
+    if (screen !== "lobby") return;
+    const TIMEOUT = 30 * 60 * 1000;
+    let timer;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        setBetSlip({}); setScreen("login"); setUsername("");
+      }, TIMEOUT);
+    };
+    reset();
+    window.addEventListener("click", reset);
+    window.addEventListener("keypress", reset);
+    window.addEventListener("touchstart", reset);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("click", reset);
+      window.removeEventListener("keypress", reset);
+      window.removeEventListener("touchstart", reset);
+    };
+  }, [screen]);
 
   // Auto-advance PIN when 4 digits entered
   useEffect(() => {
@@ -301,6 +331,13 @@ export default function App() {
 
   async function placeBets() {
     if (slipEntries.length === 0) return;
+    // Re-check market status at placement time (catches paused markets on stale sessions)
+    for (const [, v] of slipEntries) {
+      const market = allMarkets.find(m => m.id === v.marketId);
+      if (market?.status === "paused") { notify(`${market.title} is currently paused`, "error"); return; }
+      if (market?.status === "settled") { notify(`${market.title} is already settled`, "error"); return; }
+    }
+
     if (slipMode === "parlay") {
       if (slipHasFuture) { notify("Futures can't be included in parlays", "error"); setSlipMode("straight"); return; }
       const stake = parseFloat(parlayStake);
@@ -486,9 +523,10 @@ export default function App() {
           {/* STEP 2b: Create PIN */}
           {loginStep === "pin_create" && (
             <>
-              <div style={{ textAlign: "center", marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: "#8a9ab0" }}>Creating account for </span>
-                <span style={{ fontSize: 12, color: "#d4a843", fontWeight: 700 }}>{name}</span>
+              <div style={{ background: "#0e1c10", border: "1px solid #166534", borderRadius: 10, padding: "12px 14px" }}>
+                <p style={{ margin: "0 0 4px", fontSize: 13, color: "#4ade80", fontWeight: 700 }}>Account not found</p>
+                <p style={{ margin: "0 0 8px", fontSize: 12, color: "#8a9ab0" }}>No account for <strong style={{ color: "#e2e8f0" }}>{name}</strong>. Double-check your spelling — names are case sensitive.</p>
+                <p style={{ margin: 0, fontSize: 11, color: "#4ade80" }}>If this is your first time, create an account below.</p>
               </div>
               <PinPad value={pinInput} onChange={setPinInput}
                 label="Choose a 4-digit PIN" sublabel="You'll use this every time you log in" />
@@ -549,6 +587,8 @@ export default function App() {
                         <span style={S.leaderRank}>#{i + 1}</span>
                         <span style={S.leaderName}>{name}</span>
                         <span style={S.leaderBal}>${u.balance.toFixed(2)}</span>
+                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px" }}
+                          onClick={() => notify(`${name}'s PIN: ${u.pin || "none"}`, "success")}>PIN</button>
                         <button style={S.adjustBtn} onClick={() => { setAdjustingUser(adjustingUser === name ? null : name); setAdjustAmt(""); }}>±</button>
                       </div>
                       {adjustingUser === name && (
