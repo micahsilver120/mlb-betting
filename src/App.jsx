@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue } from "firebase/database";
 
-// ─── Firebase Config ──────────────────────────────────────────────────────────
-// Replace each value below with the matching value from your Firebase console
+// ─── Firebase Config ───────────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyClIKmR4FTthxNXtYJZS8Ef6U6RvcvBKGg",
   authDomain: "mln-betting.firebaseapp.com",
@@ -11,12 +10,12 @@ const firebaseConfig = {
   projectId: "mln-betting",
   storageBucket: "mln-betting.firebasestorage.app",
   messagingSenderId: "444211874873",
-  appId: "1:444211874873:web:599bcdeb815bbcd04d91e8"
+  appId: "1:444211874873:web:599bcdeb815bbcd04d91e8",
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
 
-// ─── Data ─────────────────────────────────────────────────────────────────────
+// ─── Data ──────────────────────────────────────────────────────────────────
 
 const INITIAL_MARKETS = {
   games: [
@@ -42,7 +41,7 @@ const INITIAL_MARKETS = {
 const STARTING_BALANCE = 1000;
 const ADMIN_PIN = "543211";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
 const fmt = o => o > 0 ? `+${o}` : `${o}`;
 const toDecimal = o => o > 0 ? o / 100 + 1 : 100 / Math.abs(o) + 1;
@@ -65,15 +64,14 @@ function leagueMeta(subtitle = "") {
   return { tag: "FUTURE", color: "#888", bg: "transparent" };
 }
 
-// ─── Storage ──────────────────────────────────────────────────────────────────
+// ─── Storage ───────────────────────────────────────────────────────────────
 
 function parseFirebase(val) {
   if (val === null || val === undefined) return null;
   if (typeof val === "string") { try { return JSON.parse(val); } catch { return val; } }
-  // Firebase converts arrays to objects — convert back
   if (typeof val === "object" && !Array.isArray(val)) {
     const keys = Object.keys(val);
-    const isArray = keys.every(k => !isNaN(k));
+    const isArray = keys.length > 0 && keys.every(k => !isNaN(k));
     return isArray ? keys.map(k => val[k]) : val;
   }
   return val;
@@ -85,48 +83,30 @@ async function storageSet(key, value) {
   try { await set(ref(db, key), JSON.stringify(value)); } catch {}
 }
 
-// ─── PIN Pad Component ────────────────────────────────────────────────────────
+// ─── PIN Pad ───────────────────────────────────────────────────────────────
 
 function PinPad({ value, onChange, label, sublabel, error }) {
-  const dots = [0, 1, 2, 3];
   const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
-
   function press(k) {
     if (k === "⌫") { onChange(value.slice(0, -1)); return; }
-    if (k === "") return;
-    if (value.length < 4) onChange(value + k);
+    if (k === "" || value.length >= 4) return;
+    onChange(value + k);
   }
-
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
       <div>
-        <p style={{ margin: "0 0 4px", fontSize: 13, color: "#8a9ab0", textAlign: "center", letterSpacing: 0.5 }}>{label}</p>
+        <p style={{ margin: "0 0 4px", fontSize: 13, color: "#8a9ab0", textAlign: "center" }}>{label}</p>
         {sublabel && <p style={{ margin: 0, fontSize: 11, color: "#2e3a4e", textAlign: "center" }}>{sublabel}</p>}
       </div>
-      <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-        {dots.map(i => (
-          <div key={i} style={{
-            width: 14, height: 14, borderRadius: "50%",
-            background: i < value.length ? "#d4a843" : "transparent",
-            border: `2px solid ${i < value.length ? "#d4a843" : error ? "#ef4444" : "#2e3a4e"}`,
-            transition: "all 0.15s"
-          }} />
+      <div style={{ display: "flex", gap: 16 }}>
+        {[0,1,2,3].map(i => (
+          <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < value.length ? "#d4a843" : "transparent", border: `2px solid ${i < value.length ? "#d4a843" : error ? "#ef4444" : "#2e3a4e"}`, transition: "all 0.15s" }} />
         ))}
       </div>
       {error && <p style={{ margin: "-10px 0 -6px", fontSize: 11, color: "#ef4444", textAlign: "center" }}>{error}</p>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: 200 }}>
         {keys.map((k, i) => (
-          <button key={i} onClick={() => press(k)}
-            style={{
-              height: 54, background: k === "" ? "transparent" : "#0e1318",
-              border: k === "" ? "none" : "1px solid #1e2530",
-              borderRadius: 12, color: k === "⌫" ? "#8a9ab0" : "#e2e8f0",
-              fontSize: k === "⌫" ? 18 : 20, fontWeight: 600,
-              cursor: k === "" ? "default" : "pointer",
-              fontFamily: "monospace",
-              transition: "background 0.1s",
-              pointerEvents: k === "" ? "none" : "auto",
-            }}>
+          <button key={i} onClick={() => press(k)} style={{ height: 54, background: k === "" ? "transparent" : "#0e1318", border: k === "" ? "none" : "1px solid #1e2530", borderRadius: 12, color: k === "⌫" ? "#8a9ab0" : "#e2e8f0", fontSize: k === "⌫" ? 18 : 20, fontWeight: 600, cursor: k === "" ? "default" : "pointer", fontFamily: "monospace", pointerEvents: k === "" ? "none" : "auto" }}>
             {k}
           </button>
         ))}
@@ -135,37 +115,36 @@ function PinPad({ value, onChange, label, sublabel, error }) {
   );
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── App ───────────────────────────────────────────────────────────────────
 
 export default function App() {
-  // ── Core state ──
   const [screen, setScreen] = useState("login");
   const [username, setUsername] = useState("");
   const [users, setUsers] = useState({});
   const [markets, setMarkets] = useState(INITIAL_MARKETS);
   const [bets, setBets] = useState([]);
+  const [headerMsg, setHeaderMsg] = useState("");
+  const [leaderboardVisible, setLeaderboardVisible] = useState(true);
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
 
-  // ── Login flow state ──
+  // Login
   const [inputName, setInputName] = useState("");
-  // loginStep: "name" | "pin_login" | "pin_wrong" | "pin_create" | "pin_confirm"
   const [loginStep, setLoginStep] = useState("name");
   const [pinInput, setPinInput] = useState("");
-  const [pendingPin, setPendingPin] = useState("");   // stores first entry during confirm
+  const [pendingPin, setPendingPin] = useState("");
   const [pinError, setPinError] = useState("");
 
-  // ── Lobby state ──
+  // Lobby
   const [betSlip, setBetSlip] = useState({});
   const [slipMode, setSlipMode] = useState("straight");
   const [parlayStake, setParlayStake] = useState("");
   const [activeTab, setActiveTab] = useState("games");
 
-  // ── Admin state ──
+  // Admin
   const [adminTab, setAdminTab] = useState("settle");
   const [adminPin, setAdminPin] = useState("");
   const [adminUnlocked, setAdminUnlocked] = useState(false);
-  const [leaderboardVisible, setLeaderboardVisible] = useState(true);
   const [editingMarket, setEditingMarket] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [editSubtitle, setEditSubtitle] = useState("");
@@ -182,136 +161,86 @@ export default function App() {
   const [addOddsB, setAddOddsB] = useState("");
   const [addMaxBet, setAddMaxBet] = useState("");
   const [futureOptions, setFutureOptions] = useState([{ label: "", odds: "" }, { label: "", odds: "" }]);
+  const [headerDraft, setHeaderDraft] = useState("");
+  const [expandedSettled, setExpandedSettled] = useState(null);
 
-  // Load data on mount, then keep in sync with real-time listeners
+  // Load data + real-time listeners
   useEffect(() => {
-    // Step 1: initial load with get() — reliable, same as before
     (async () => {
-      const [u, m, b, lv] = await Promise.all([
-        storageGet("mln_users"),
-        storageGet("mln_markets"),
-        storageGet("mln_bets"),
-        storageGet("mln_leaderboard_visible"),
+      const [u, m, b, lv, hm] = await Promise.all([
+        storageGet("mln_users"), storageGet("mln_markets"), storageGet("mln_bets"),
+        storageGet("mln_leaderboard_visible"), storageGet("mln_header_msg"),
       ]);
       if (u) setUsers(u);
       if (m) setMarkets(m);
       setBets(Array.isArray(b) ? b : []);
       if (lv !== null) setLeaderboardVisible(lv);
+      if (hm !== null) setHeaderMsg(hm);
+      setHeaderDraft(hm || "");
       setLoading(false);
     })();
-
-    // Step 2: real-time listeners for live updates (pauses, odds changes, etc.)
-    const u1 = onValue(ref(db, "mln_users"), snap => {
-      if (snap.exists()) { const v = parseFirebase(snap.val()); if (v) setUsers(v); }
-    }, () => {});
-    const u2 = onValue(ref(db, "mln_markets"), snap => {
-      if (snap.exists()) { const v = parseFirebase(snap.val()); if (v) setMarkets(v); }
-    }, () => {});
-    const u3 = onValue(ref(db, "mln_bets"), snap => {
-      const v = snap.exists() ? parseFirebase(snap.val()) : [];
-      setBets(Array.isArray(v) ? v : []);
-    }, () => {});
-    const u4 = onValue(ref(db, "mln_leaderboard_visible"), snap => {
-      if (snap.exists()) setLeaderboardVisible(parseFirebase(snap.val()));
-    }, () => {});
-
-    return () => { u1(); u2(); u3(); u4(); };
+    const u1 = onValue(ref(db, "mln_users"), snap => { if (snap.exists()) { const v = parseFirebase(snap.val()); if (v) setUsers(v); } }, () => {});
+    const u2 = onValue(ref(db, "mln_markets"), snap => { if (snap.exists()) { const v = parseFirebase(snap.val()); if (v) setMarkets(v); } }, () => {});
+    const u3 = onValue(ref(db, "mln_bets"), snap => { const v = snap.exists() ? parseFirebase(snap.val()) : []; setBets(Array.isArray(v) ? v : []); }, () => {});
+    const u4 = onValue(ref(db, "mln_leaderboard_visible"), snap => { if (snap.exists()) setLeaderboardVisible(parseFirebase(snap.val())); }, () => {});
+    const u5 = onValue(ref(db, "mln_header_msg"), snap => { const v = snap.exists() ? parseFirebase(snap.val()) : ""; setHeaderMsg(v || ""); }, () => {});
+    return () => { u1(); u2(); u3(); u4(); u5(); };
   }, []);
 
-  // 30-minute inactivity timeout — kicks back to login so users get fresh data
+  // 30-min inactivity timeout
   useEffect(() => {
     if (screen !== "lobby") return;
-    const TIMEOUT = 30 * 60 * 1000;
     let timer;
-    const reset = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        setBetSlip({}); setScreen("login"); setUsername("");
-      }, TIMEOUT);
-    };
+    const reset = () => { clearTimeout(timer); timer = setTimeout(() => { setBetSlip({}); setScreen("login"); setUsername(""); }, 30 * 60 * 1000); };
     reset();
-    window.addEventListener("click", reset);
-    window.addEventListener("keypress", reset);
-    window.addEventListener("touchstart", reset);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("click", reset);
-      window.removeEventListener("keypress", reset);
-      window.removeEventListener("touchstart", reset);
-    };
+    window.addEventListener("click", reset); window.addEventListener("keypress", reset); window.addEventListener("touchstart", reset);
+    return () => { clearTimeout(timer); window.removeEventListener("click", reset); window.removeEventListener("keypress", reset); window.removeEventListener("touchstart", reset); };
   }, [screen]);
 
-  // Auto-advance PIN when 4 digits entered
+  // Auto-advance PIN
   useEffect(() => {
     if (pinInput.length < 4) return;
-    const timer = setTimeout(() => handlePinComplete(pinInput), 150);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => handlePinComplete(pinInput), 150);
+    return () => clearTimeout(t);
   }, [pinInput, loginStep]);
 
-  function notify(msg, type = "success") {
-    setNotification({ msg, type });
-    setTimeout(() => setNotification(null), 3200);
-  }
+  // Redirect off hidden leaderboard
+  useEffect(() => { if (!leaderboardVisible && activeTab === "leaderboard") setActiveTab("games"); }, [leaderboardVisible]);
 
+  function notify(msg, type = "success") { setNotification({ msg, type }); setTimeout(() => setNotification(null), 3200); }
   async function saveUsers(u) { setUsers(u); await storageSet("mln_users", u); }
   async function saveMarkets(m) { setMarkets(m); await storageSet("mln_markets", m); }
   async function saveBets(b) { setBets(b); await storageSet("mln_bets", b); }
 
-  // ── Login flow ─────────────────────────────────────────────────────────────
+  // ── Login ────────────────────────────────────────────────────────────────
 
   function handleNameSubmit() {
-    const name = inputName.trim();
-    if (!name) return;
+    const name = inputName.trim(); if (!name) return;
     setPinInput(""); setPinError("");
-    if (users[name]) {
-      setLoginStep("pin_login");
-    } else {
-      setLoginStep("pin_create");
-    }
+    setLoginStep(users[name] ? "pin_login" : "pin_create");
   }
 
   async function handlePinComplete(pin) {
     const name = inputName.trim();
-
     if (loginStep === "pin_login") {
-      if (pin === users[name]?.pin) {
-        setUsername(name); setScreen("lobby");
-        setInputName(""); setLoginStep("name"); setPinInput(""); setPinError("");
-      } else {
-        setPinError("Incorrect PIN — try again");
-        setPinInput("");
-      }
+      if (pin === users[name]?.pin) { setUsername(name); setScreen("lobby"); setInputName(""); setLoginStep("name"); setPinInput(""); setPinError(""); }
+      else { setPinError("Incorrect PIN — try again"); setPinInput(""); }
       return;
     }
-
-    if (loginStep === "pin_create") {
-      setPendingPin(pin);
-      setPinInput("");
-      setPinError("");
-      setLoginStep("pin_confirm");
-      return;
-    }
-
+    if (loginStep === "pin_create") { setPendingPin(pin); setPinInput(""); setPinError(""); setLoginStep("pin_confirm"); return; }
     if (loginStep === "pin_confirm") {
       if (pin === pendingPin) {
         const newUsers = { ...users, [name]: { balance: STARTING_BALANCE, pin } };
         await saveUsers(newUsers);
-        setUsername(name); setScreen("lobby");
-        setInputName(""); setLoginStep("name"); setPinInput(""); setPinError(""); setPendingPin("");
-      } else {
-        setPinError("PINs don't match — start over");
-        setPinInput("");
-        setTimeout(() => { setLoginStep("pin_create"); setPinError(""); }, 800);
-      }
+        setUsername(name); setScreen("lobby"); setInputName(""); setLoginStep("name"); setPinInput(""); setPinError(""); setPendingPin("");
+      } else { setPinError("PINs don't match — start over"); setPinInput(""); setTimeout(() => { setLoginStep("pin_create"); setPinError(""); }, 800); }
       return;
     }
   }
 
-  function resetLoginToName() {
-    setLoginStep("name"); setPinInput(""); setPinError(""); setPendingPin("");
-  }
+  function resetLoginToName() { setLoginStep("name"); setPinInput(""); setPinError(""); setPendingPin(""); }
 
-  // ── Bet slip ───────────────────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────────
 
   const allMarkets = [...markets.games, ...markets.futures];
   const slipEntries = Object.entries(betSlip);
@@ -334,37 +263,55 @@ export default function App() {
     else if (b.betType === "parlay") for (const leg of b.legs) optionTotals[leg.optionId] = (optionTotals[leg.optionId] || 0) + b.stake;
   }
 
+  const balance = users[username]?.balance ?? STARTING_BALANCE;
+  const userBets = bets.filter(b => b.username === username);
+
+  // Leaderboard sorted by total (balance + pending stakes)
+  const leaderboard = Object.entries(users).map(([name, u]) => {
+    const pendingAmt = bets.filter(b => b.username === name && b.status === "pending").reduce((s, b) => s + b.stake, 0);
+    return [name, u, pendingAmt, (u.balance || 0) + pendingAmt];
+  }).sort((a, b) => b[3] - a[3]);
+
+  const displayMarkets = activeTab === "games" ? markets.games : markets.futures;
+
+  // ── House P&L ─────────────────────────────────────────────────────────────
+  // For each settled market: house_take = total_staked - total_paid_out
+  function getMarketPnl(marketId) {
+    const relevant = bets.filter(b => {
+      if (b.betType === "straight") return b.marketId === marketId && (b.status === "won" || b.status === "lost");
+      if (b.betType === "parlay") return b.legs.some(l => l.marketId === marketId) && (b.status === "won" || b.status === "lost");
+      return false;
+    });
+    const totalStaked = relevant.reduce((s, b) => s + b.stake, 0);
+    const totalPaid = relevant.filter(b => b.status === "won").reduce((s, b) => s + b.payout, 0);
+    const betCount = relevant.length;
+    return { totalStaked, totalPaid, net: totalStaked - totalPaid, betCount };
+  }
+
+  const houseTotalNet = allMarkets
+    .filter(m => m.status === "settled")
+    .reduce((sum, m) => sum + getMarketPnl(m.id).net, 0);
+
+  // ── Bet slip actions ──────────────────────────────────────────────────────
+
   function togglePick(marketId, optionId) {
     if (betSlip[optionId]) { const c = { ...betSlip }; delete c[optionId]; setBetSlip(c); return; }
     const c = {};
     for (const [k, v] of slipEntries) { if (v.marketId !== marketId) c[k] = v; }
     c[optionId] = { marketId, stake: "" };
     setBetSlip(c);
-    // If adding a future pick while in parlay mode, reset to straight
     const market = allMarkets.find(m => m.id === marketId);
     if (market?.type === "future" && slipMode === "parlay") setSlipMode("straight");
   }
-
   function setStake(optionId, val) { setBetSlip(p => ({ ...p, [optionId]: { ...p[optionId], stake: val } })); }
-
-  const balance = users[username]?.balance ?? STARTING_BALANCE;
-  const userBets = bets.filter(b => b.username === username);
-  const leaderboard = Object.entries(users).sort((a, b) => b[1].balance - a[1].balance);
-  const displayMarkets = activeTab === "games" ? markets.games : markets.futures;
-  // Redirect off leaderboard tab if admin hides it
-  useEffect(() => { if (!leaderboardVisible && activeTab === "leaderboard") setActiveTab("games"); }, [leaderboardVisible]);
-
-  // ── Place bets ─────────────────────────────────────────────────────────────
 
   async function placeBets() {
     if (slipEntries.length === 0) return;
-    // Re-check market status at placement time (catches paused markets on stale sessions)
     for (const [, v] of slipEntries) {
       const market = allMarkets.find(m => m.id === v.marketId);
-      if (market?.status === "paused") { notify(`${market.title} is currently paused`, "error"); return; }
+      if (market?.status === "paused") { notify(`${market.title} is paused`, "error"); return; }
       if (market?.status === "settled") { notify(`${market.title} is already settled`, "error"); return; }
     }
-
     if (slipMode === "parlay") {
       if (slipHasFuture) { notify("Futures can't be included in parlays", "error"); setSlipMode("straight"); return; }
       const stake = parseFloat(parlayStake);
@@ -397,7 +344,7 @@ export default function App() {
     }
   }
 
-  // ── Admin: settle ──────────────────────────────────────────────────────────
+  // ── Admin actions ─────────────────────────────────────────────────────────
 
   async function settleMarket(marketId, winningOptionId) {
     const settle = m => m.id === marketId ? { ...m, status: "settled", winner: winningOptionId } : m;
@@ -429,30 +376,21 @@ export default function App() {
   }
 
   async function unsettleMarket(marketId) {
-    // Claw back payouts from winners, restore all bets to pending, reopen market
     const newUsers = { ...users };
     const newBets = bets.map(b => {
       if (b.betType === "straight") {
         if (b.marketId !== marketId) return b;
-        if (b.status === "won") {
-          // Claw back the payout
-          newUsers[b.username] = { ...newUsers[b.username], balance: Math.max(0, (newUsers[b.username]?.balance || 0) - b.payout) };
-        }
+        if (b.status === "won") newUsers[b.username] = { ...newUsers[b.username], balance: Math.max(0, (newUsers[b.username]?.balance || 0) - b.payout) };
         if (b.status === "won" || b.status === "lost") return { ...b, status: "pending" };
         return b;
       }
       if (b.betType === "parlay") {
         const hasLeg = b.legs.some(l => l.marketId === marketId);
         if (!hasLeg) return b;
-        // Only touch parlays that were fully resolved by this market
-        if (b.status === "won") {
-          newUsers[b.username] = { ...newUsers[b.username], balance: Math.max(0, (newUsers[b.username]?.balance || 0) - b.payout) };
-        }
-        // Reset the specific leg and re-evaluate parlay status
+        if (b.status === "won") newUsers[b.username] = { ...newUsers[b.username], balance: Math.max(0, (newUsers[b.username]?.balance || 0) - b.payout) };
         const newLegs = b.legs.map(l => l.marketId === marketId ? { ...l, status: "pending" } : l);
         const anyLost = newLegs.some(l => l.status === "lost");
-        const newStatus = anyLost ? "lost" : "pending";
-        return { ...b, legs: newLegs, status: newStatus };
+        return { ...b, legs: newLegs, status: anyLost ? "lost" : "pending" };
       }
       return b;
     });
@@ -482,7 +420,21 @@ export default function App() {
     const newStatus = market.status === "paused" ? "open" : "paused";
     const toggle = m => m.id === marketId ? { ...m, status: newStatus } : m;
     await saveMarkets({ games: markets.games.map(toggle), futures: markets.futures.map(toggle) });
-    notify(newStatus === "paused" ? "⏸ Market paused — no new bets accepted" : "▶️ Market reopened — bets accepted");
+    notify(newStatus === "paused" ? "⏸ Market paused" : "▶️ Market reopened");
+  }
+
+  async function pauseAllMarkets() {
+    const pauseAll = m => m.status === "open" ? { ...m, status: "paused" } : m;
+    const newMarkets = { games: markets.games.map(pauseAll), futures: markets.futures.map(pauseAll) };
+    await saveMarkets(newMarkets);
+    notify("⏸ All open markets paused");
+  }
+
+  async function unpauseAllMarkets() {
+    const openAll = m => m.status === "paused" ? { ...m, status: "open" } : m;
+    const newMarkets = { games: markets.games.map(openAll), futures: markets.futures.map(openAll) };
+    await saveMarkets(newMarkets);
+    notify("▶️ All markets reopened");
   }
 
   function startEdit(market) { setEditingMarket(market); setEditTitle(market.title); setEditSubtitle(market.subtitle); setEditOptions(market.options.map(o => ({ ...o }))); setEditMaxBet(market.maxBet ?? ""); }
@@ -516,34 +468,20 @@ export default function App() {
     notify("Market added! ✅");
   }
 
+  async function deleteUser(name) {
+    const newUsers = { ...users }; delete newUsers[name];
+    await saveUsers(newUsers);
+    await saveBets(bets.filter(b => b.username !== name));
+    if (adjustingUser === name) setAdjustingUser(null);
+    notify(`${name} deleted`);
+  }
+
   async function applyBalanceAdjust(name) {
     const delta = parseFloat(adjustAmt);
     if (isNaN(delta)) { notify("Enter a number", "error"); return; }
     await saveUsers({ ...users, [name]: { ...users[name], balance: Math.max(0, (users[name]?.balance || 0) + delta) } });
     setAdjustingUser(null); setAdjustAmt("");
     notify(`Balance adjusted by ${delta >= 0 ? "+" : ""}$${delta.toFixed(2)}`);
-  }
-
-  async function deleteUser(name) {
-    const newUsers = { ...users };
-    delete newUsers[name];
-    await saveUsers(newUsers);
-    // Void any pending bets for this user and refund nothing (they're deleted)
-    const newBets = bets.filter(b => b.username !== name);
-    await saveBets(newBets);
-    if (adjustingUser === name) setAdjustingUser(null);
-    notify(`${name} deleted`);
-  }
-
-  async function deleteUser(name) {
-    const newUsers = { ...users };
-    delete newUsers[name];
-    await saveUsers(newUsers);
-    // Also void all their pending bets and refund nothing (they're deleted)
-    const newBets = bets.filter(b => b.username !== name);
-    await saveBets(newBets);
-    if (adjustingUser === name) setAdjustingUser(null);
-    notify(`${name} deleted`);
   }
 
   async function toggleLeaderboard() {
@@ -553,6 +491,11 @@ export default function App() {
     notify(newVal ? "Leaderboard visible to players" : "Leaderboard hidden from players");
   }
 
+  async function saveHeaderMsg() {
+    await storageSet("mln_header_msg", headerDraft.trim());
+    notify(headerDraft.trim() ? "Banner saved!" : "Banner cleared");
+  }
+
   async function resetAll() {
     await saveMarkets({ ...INITIAL_MARKETS }); await saveBets([]);
     const r = {};
@@ -560,16 +503,14 @@ export default function App() {
     await saveUsers(r); notify("Everything reset!");
   }
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   if (loading) return <div style={S.center}><div style={S.loadDot} /></div>;
 
-  // ── Login ──────────────────────────────────────────────────────────────────
+  // ── Login ─────────────────────────────────────────────────────────────────
 
   if (screen === "login") {
     const name = inputName.trim();
-    const isExisting = !!users[name];
-
     return (
       <div style={S.loginWrap}>
         <div style={S.loginBg} />
@@ -583,52 +524,43 @@ export default function App() {
           </div>
           <div style={S.loginDivider} />
 
-          {/* STEP 1: Name */}
           {loginStep === "name" && (
             <>
               <label style={S.loginLabel}>PLAYER NAME</label>
               <input style={S.input} placeholder="Enter your name…" value={inputName}
                 onChange={e => setInputName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && inputName.trim() && handleNameSubmit()} />
-              <button style={{ ...S.btnPrimary, opacity: inputName.trim() ? 1 : 0.4 }} onClick={handleNameSubmit} disabled={!inputName.trim()}>
-                Continue →
-              </button>
+              <button style={{ ...S.btnPrimary, opacity: inputName.trim() ? 1 : 0.4 }} onClick={handleNameSubmit} disabled={!inputName.trim()}>Continue →</button>
               <button style={S.btnGhost} onClick={() => setScreen("admin")}>Admin Panel</button>
             </>
           )}
 
-          {/* STEP 2a: PIN login */}
           {loginStep === "pin_login" && (
             <>
               <div style={{ textAlign: "center", marginBottom: 4 }}>
                 <span style={{ fontSize: 12, color: "#8a9ab0" }}>Welcome back, </span>
                 <span style={{ fontSize: 12, color: "#d4a843", fontWeight: 700 }}>{name}</span>
               </div>
-              <PinPad value={pinInput} onChange={p => { setPinInput(p); if (pinError) setPinError(""); }}
-                label="Enter your PIN" error={pinError} />
+              <PinPad value={pinInput} onChange={p => { setPinInput(p); if (pinError) setPinError(""); }} label="Enter your PIN" error={pinError} />
               <button style={S.btnGhost} onClick={resetLoginToName}>← Back</button>
             </>
           )}
 
-          {/* STEP 2b: Create PIN */}
           {loginStep === "pin_create" && (
             <>
               <div style={{ background: "#0e1c10", border: "1px solid #166534", borderRadius: 10, padding: "12px 14px" }}>
                 <p style={{ margin: "0 0 4px", fontSize: 13, color: "#4ade80", fontWeight: 700 }}>Account not found</p>
-                <p style={{ margin: "0 0 8px", fontSize: 12, color: "#8a9ab0" }}>No account for <strong style={{ color: "#e2e8f0" }}>{name}</strong>. Double-check your spelling — names are case sensitive.</p>
+                <p style={{ margin: "0 0 8px", fontSize: 12, color: "#8a9ab0" }}>No account for <strong style={{ color: "#e2e8f0" }}>{name}</strong>. Names are case-sensitive — double-check your spelling.</p>
                 <p style={{ margin: 0, fontSize: 11, color: "#4ade80" }}>If this is your first time, create an account below.</p>
               </div>
-              <PinPad value={pinInput} onChange={setPinInput}
-                label="Choose a 4-digit PIN" sublabel="You'll use this every time you log in" />
+              <PinPad value={pinInput} onChange={setPinInput} label="Choose a 4-digit PIN" sublabel="You'll use this every time you log in" />
               <button style={S.btnGhost} onClick={resetLoginToName}>← Back</button>
             </>
           )}
 
-          {/* STEP 2c: Confirm PIN */}
           {loginStep === "pin_confirm" && (
             <>
-              <PinPad value={pinInput} onChange={p => { setPinInput(p); if (pinError) setPinError(""); }}
-                label="Confirm your PIN" sublabel="Enter it again to confirm" error={pinError} />
+              <PinPad value={pinInput} onChange={p => { setPinInput(p); if (pinError) setPinError(""); }} label="Confirm your PIN" sublabel="Enter it again to confirm" error={pinError} />
               <button style={S.btnGhost} onClick={() => { setLoginStep("pin_create"); setPinInput(""); setPinError(""); }}>← Back</button>
             </>
           )}
@@ -666,32 +598,40 @@ export default function App() {
           </div>
           <div style={S.adminContent}>
 
+            {/* ── SETTLE TAB ── */}
             {adminTab === "settle" && (
               <>
+                {/* House P&L summary */}
+                <div style={{ ...S.adminSection, background: houseTotalNet >= 0 ? "#060e08" : "#0e0608", border: `1px solid ${houseTotalNet >= 0 ? "#166534" : "#7f1d1d"}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <p style={{ ...S.sectionHead, margin: 0 }}>HOUSE TAKE (ALL TIME)</p>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: houseTotalNet >= 0 ? "#4ade80" : "#f87171" }}>
+                      {houseTotalNet >= 0 ? "+" : ""}${houseTotalNet.toFixed(2)}
+                    </span>
+                  </div>
+                  <p style={{ margin: "6px 0 0", fontSize: 10, color: "#2e3a4e" }}>
+                    Across {allMarkets.filter(m => m.status === "settled").length} settled markets
+                  </p>
+                </div>
+
+                {/* Players */}
                 <div style={S.adminSection}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <p style={{ ...S.sectionHead, margin: 0 }}>PLAYERS</p>
-                    <button
-                      onClick={toggleLeaderboard}
-                      style={{ ...S.adjustBtn, fontSize: 10, padding: "5px 12px",
-                        color: leaderboardVisible ? "#4ade80" : "#f59e0b",
-                        borderColor: leaderboardVisible ? "#166534" : "#92400e",
-                        background: leaderboardVisible ? "#0a1a0e" : "#1c1200" }}>
+                    <button onClick={toggleLeaderboard} style={{ ...S.adjustBtn, fontSize: 10, padding: "5px 12px", color: leaderboardVisible ? "#4ade80" : "#f59e0b", borderColor: leaderboardVisible ? "#166534" : "#92400e", background: leaderboardVisible ? "#0a1a0e" : "#1c1200" }}>
                       {leaderboardVisible ? "👁 Standings ON" : "🙈 Standings OFF"}
                     </button>
                   </div>
                   {leaderboard.length === 0 && <p style={S.emptyText}>No players yet</p>}
-                  {leaderboard.map(([name, u], i) => (
+                  {leaderboard.map(([name, u, pendingAmt], i) => (
                     <div key={name}>
                       <div style={S.leaderRow}>
                         <span style={S.leaderRank}>#{i + 1}</span>
                         <span style={S.leaderName}>{name}</span>
                         <span style={S.leaderBal}>${u.balance.toFixed(2)}</span>
-                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px" }}
-                          onClick={() => notify(`${name}'s PIN: ${u.pin || "none"}`, "success")}>PIN</button>
+                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px" }} onClick={() => notify(`${name}'s PIN: ${u.pin || "none"}`, "success")}>PIN</button>
                         <button style={S.adjustBtn} onClick={() => { setAdjustingUser(adjustingUser === name ? null : name); setAdjustAmt(""); }}>±</button>
-                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px", color: "#f87171", borderColor: "#7f1d1d" }}
-                          onClick={() => { if (window.confirm(`Delete ${name}? This cannot be undone.`)) deleteUser(name); }}>✕</button>
+                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px", color: "#f87171", borderColor: "#7f1d1d", background: "#2a0808" }} onClick={() => { if (window.confirm(`Delete ${name}?`)) deleteUser(name); }}>✕</button>
                       </div>
                       {adjustingUser === name && (
                         <div style={S.adjustRow}>
@@ -703,44 +643,101 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+
+                {/* Pause all */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ ...S.settleBtn, flex: 1, textAlign: "center", background: "#1c1200", borderColor: "#92400e", color: "#fbbf24" }} onClick={pauseAllMarkets}>⏸ Pause All Markets</button>
+                  <button style={{ ...S.settleBtn, flex: 1, textAlign: "center" }} onClick={unpauseAllMarkets}>▶️ Open All Markets</button>
+                </div>
+
+                {/* Settle markets */}
                 <div style={S.adminSection}>
                   <p style={S.sectionHead}>SETTLE MARKETS</p>
-                  {allMarkets.map(market => (
-                    <div key={market.id} style={S.settleCard}>
-                      <div style={S.settleTitle}>
-                        <span>{market.title}</span>
-                        {market.status === "settled" && <span style={S.settledBadge}>SETTLED</span>}
-                        {market.status === "paused" && <span style={S.pausedBadge}>⏸ PAUSED</span>}
+                  {allMarkets.map(market => {
+                    const pnl = market.status === "settled" ? getMarketPnl(market.id) : null;
+                    const mTotal = market.options.reduce((s, o) => s + (optionTotals[o.id] || 0), 0);
+                    return (
+                      <div key={market.id} style={S.settleCard}>
+                        <div style={S.settleTitle}>
+                          <span>{market.title}</span>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            {market.status === "settled" && <span style={S.settledBadge}>SETTLED</span>}
+                            {market.status === "paused" && <span style={S.pausedBadge}>⏸ PAUSED</span>}
+                          </div>
+                        </div>
+
+                        {/* Money distribution in admin */}
+                        {mTotal > 0 && market.status !== "settled" && (
+                          <div style={{ marginBottom: 10 }}>
+                            {market.options.map(opt => {
+                              const amt = optionTotals[opt.id] || 0;
+                              const pct = mTotal > 0 ? amt / mTotal : 0;
+                              return (
+                                <div key={opt.id} style={{ marginBottom: 4 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#8a9ab0", marginBottom: 2 }}>
+                                    <span>{opt.label} <span style={{ color: "#d4a843" }}>{fmt(opt.odds)}</span></span>
+                                    <span>${amt.toFixed(0)} · {Math.round(pct * 100)}%</span>
+                                  </div>
+                                  <div style={S.moneyBar}><div style={{ ...S.moneyBarFill, width: `${pct * 100}%`, background: "#58a6ff" }} /></div>
+                                </div>
+                              );
+                            })}
+                            <div style={{ fontSize: 10, color: "#2e3a4e", marginTop: 4 }}>Total action: ${mTotal.toFixed(0)}</div>
+                          </div>
+                        )}
+
+                        {/* Pause/open toggle for open/paused markets */}
+                        {(market.status === "open" || market.status === "paused") && (
+                          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                            <button style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1c1200", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#f59e0b", fontSize: 11 }} onClick={() => togglePauseMarket(market.id)}>
+                              {market.status === "paused" ? "▶ Open Betting" : "⏸ Pause Betting"}
+                            </button>
+                          </div>
+                        )}
+
+                        {market.status === "open" || market.status === "paused" ? (
+                          <div style={S.settleOptions}>
+                            {market.options.map(opt => <button key={opt.id} style={S.settleBtn} onClick={() => settleMarket(market.id, opt.id)}>✓ {opt.label}</button>)}
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                              <p style={S.winnerText}>🏆 {market.options.find(o => o.id === market.winner)?.label}</p>
+                              <button style={{ ...S.settleBtn, background: "#1a0a1a", borderColor: "#7f1d7f", color: "#e879f9", fontSize: 11, padding: "6px 12px" }}
+                                onClick={() => { if (window.confirm(`Unsettle "${market.title}"? This reverses all payouts.`)) unsettleMarket(market.id); }}>
+                                ↩ Unsettle
+                              </button>
+                            </div>
+                            {/* P&L for settled market */}
+                            <div
+                              style={{ cursor: "pointer", background: expandedSettled === market.id ? "#0a0a12" : "transparent", borderRadius: 6, padding: expandedSettled === market.id ? "8px 10px" : "0" }}
+                              onClick={() => setExpandedSettled(expandedSettled === market.id ? null : market.id)}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontSize: 10, color: "#2e3a4e" }}>{expandedSettled === market.id ? "▲ hide" : "▼ house P&L"}</span>
+                                {pnl && <span style={{ fontSize: 12, fontWeight: 700, color: pnl.net >= 0 ? "#4ade80" : "#f87171" }}>{pnl.net >= 0 ? "+" : ""}${pnl.net.toFixed(2)}</span>}
+                              </div>
+                              {expandedSettled === market.id && pnl && (
+                                <div style={{ marginTop: 8, fontSize: 11, color: "#8a9ab0", display: "flex", flexDirection: "column", gap: 3 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between" }}><span>Total staked</span><span>${pnl.totalStaked.toFixed(2)}</span></div>
+                                  <div style={{ display: "flex", justifyContent: "space-between" }}><span>Total paid out</span><span>${pnl.totalPaid.toFixed(2)}</span></div>
+                                  <div style={{ display: "flex", justifyContent: "space-between" }}><span>Bets resolved</span><span>{pnl.betCount}</span></div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: pnl.net >= 0 ? "#4ade80" : "#f87171", borderTop: "1px solid #1a2030", paddingTop: 4, marginTop: 2 }}>
+                                    <span>Net house {pnl.net >= 0 ? "take" : "loss"}</span>
+                                    <span>{pnl.net >= 0 ? "+" : ""}${pnl.net.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
-                      {(market.status === "open" || market.status === "paused") && (
-                        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-                          <button
-                            style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1c1200", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#f59e0b", fontSize: 11 }}
-                            onClick={() => togglePauseMarket(market.id)}>
-                            {market.status === "paused" ? "▶ Open Betting" : "⏸ Pause Betting"}
-                          </button>
-                        </div>
-                      )}
-                      {market.status === "open" || market.status === "paused" ? (
-                        <div style={S.settleOptions}>
-                          {market.options.map(opt => <button key={opt.id} style={S.settleBtn} onClick={() => settleMarket(market.id, opt.id)}>✓ {opt.label}</button>)}
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <p style={S.winnerText}>🏆 {market.options.find(o => o.id === market.winner)?.label}</p>
-                          <button
-                            style={{ ...S.settleBtn, background: "#1a0a1a", borderColor: "#7f1d7f", color: "#e879f9", fontSize: 11, padding: "6px 12px" }}
-                            onClick={() => { if (window.confirm(`Unsettle "${market.title}"? This will reverse all payouts and reopen betting.`)) unsettleMarket(market.id); }}>
-                            ↩ Unsettle
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}
 
+            {/* ── ADD TAB ── */}
             {adminTab === "add" && (
               <div style={S.adminSection}>
                 <p style={S.sectionHead}>ADD NEW MARKET</p>
@@ -759,38 +756,40 @@ export default function App() {
               </div>
             )}
 
+            {/* ── EDIT TAB ── */}
             {adminTab === "edit" && !editingMarket && (
-              <div style={S.adminSection}>
-                <p style={S.sectionHead}>EDIT / PAUSE / REMOVE MARKETS</p>
-                {allMarkets.length === 0 && <p style={S.emptyText}>No markets</p>}
-                {allMarkets.map(market => (
-                  <div key={market.id} style={S.settleCard}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{market.title}</div>
-                        <div style={{ fontSize: 10, color: market.status === "paused" ? "#f59e0b" : "#2e3a4e" }}>
-                          {market.status === "paused" ? "⏸ Paused — bets locked" : market.subtitle}
+              <>
+                {/* Header message editor */}
+                <div style={S.adminSection}>
+                  <p style={S.sectionHead}>LOBBY BANNER MESSAGE</p>
+                  <p style={{ fontSize: 11, color: "#2e3a4e", marginBottom: 10 }}>Shown to all players when they log in. Leave blank to hide.</p>
+                  <textarea style={{ ...S.input, minHeight: 70, resize: "vertical", lineHeight: 1.5 }} placeholder="e.g. 🏆 Semifinals are LIVE — place your bets before 7pm!" value={headerDraft} onChange={e => setHeaderDraft(e.target.value)} />
+                  <button style={{ ...S.btnPrimary, marginTop: 10, width: "100%" }} onClick={saveHeaderMsg}>
+                    {headerDraft.trim() ? "Save Banner →" : "Clear Banner"}
+                  </button>
+                </div>
+                <div style={S.adminSection}>
+                  <p style={S.sectionHead}>EDIT / PAUSE / REMOVE MARKETS</p>
+                  {allMarkets.length === 0 && <p style={S.emptyText}>No markets</p>}
+                  {allMarkets.map(market => (
+                    <div key={market.id} style={S.settleCard}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{market.title}</div><div style={{ fontSize: 10, color: market.status === "paused" ? "#f59e0b" : "#2e3a4e" }}>{market.status === "paused" ? "⏸ Paused" : market.subtitle}</div></div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {(market.status === "open" || market.status === "paused") && <button style={S.settleBtn} onClick={() => startEdit(market)}>Edit</button>}
+                          {(market.status === "open" || market.status === "paused") && (
+                            <button style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1a1408", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#fbbf24" }} onClick={() => togglePauseMarket(market.id)}>
+                              {market.status === "paused" ? "▶️ Open" : "⏸ Pause"}
+                            </button>
+                          )}
+                          {market.status !== "settled" && <button style={{ ...S.settleBtn, background: "#2a0808", borderColor: "#7f1d1d", color: "#f87171" }} onClick={() => voidMarket(market.id)}>Void</button>}
+                          {market.status === "settled" && <span style={S.settledBadge}>SETTLED</span>}
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        {(market.status === "open" || market.status === "paused") && (
-                          <button style={S.settleBtn} onClick={() => startEdit(market)}>Edit</button>
-                        )}
-                        {(market.status === "open" || market.status === "paused") && (
-                          <button style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1a1408", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#fbbf24" }}
-                            onClick={() => togglePauseMarket(market.id)}>
-                            {market.status === "paused" ? "▶️ Open" : "⏸ Pause"}
-                          </button>
-                        )}
-                        {market.status !== "settled" && (
-                          <button style={{ ...S.settleBtn, background: "#2a0808", borderColor: "#7f1d1d", color: "#f87171" }} onClick={() => voidMarket(market.id)}>Void</button>
-                        )}
-                        {market.status === "settled" && <span style={S.settledBadge}>SETTLED</span>}
-                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
 
             {adminTab === "edit" && editingMarket && (
@@ -798,7 +797,7 @@ export default function App() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                   <div>
                     <p style={{ ...S.sectionHead, margin: 0 }}>EDITING MARKET</p>
-                    {editingMarket.status === "paused" && <p style={{ margin: "4px 0 0", fontSize: 10, color: "#f59e0b" }}>⏸ Currently paused — odds update takes effect when reopened</p>}
+                    {editingMarket.status === "paused" && <p style={{ margin: "4px 0 0", fontSize: 10, color: "#f59e0b" }}>⏸ Currently paused</p>}
                   </div>
                   <button style={S.btnRetry} onClick={() => setEditingMarket(null)}>Cancel</button>
                 </div>
@@ -811,6 +810,7 @@ export default function App() {
               </div>
             )}
 
+            {/* ── BETS TAB ── */}
             {adminTab === "bets" && (
               <div style={S.adminSection}>
                 <p style={S.sectionHead}>ALL BETS ({bets.length})</p>
@@ -825,6 +825,7 @@ export default function App() {
               </div>
             )}
 
+            {/* ── DANGER TAB ── */}
             {adminTab === "danger" && (
               <div style={S.adminSection}>
                 <p style={S.sectionHead}>DANGER ZONE</p>
@@ -851,12 +852,17 @@ export default function App() {
         </div>
       </div>
 
+      {/* Header banner */}
+      {headerMsg && (
+        <div style={S.headerBanner}>{headerMsg}</div>
+      )}
+
       <div style={S.tabs}>
         {[["games","🏟 Games"],["futures","🔮 Futures"],["leaderboard","🏅 Standings"],["mybets",`My Bets${userBets.length ? ` (${userBets.length})` : ""}`]]
           .filter(([key]) => key !== "leaderboard" || leaderboardVisible)
           .map(([key, label]) => (
-          <button key={key} style={{ ...S.tab, ...(activeTab === key ? S.tabActive : {}) }} onClick={() => setActiveTab(key)}>{label}</button>
-        ))}
+            <button key={key} style={{ ...S.tab, ...(activeTab === key ? S.tabActive : {}) }} onClick={() => setActiveTab(key)}>{label}</button>
+          ))}
       </div>
 
       <div style={S.content}>
@@ -903,9 +909,7 @@ export default function App() {
                   </div>
                   {slipMode === "straight" && market.options.map(opt => {
                     if (!betSlip[opt.id]) return null;
-                    const slip = betSlip[opt.id];
-                    const stake = parseFloat(slip.stake) || 0;
-                    const win = stake > 0 ? toWin(stake, opt.odds) : 0;
+                    const slip = betSlip[opt.id]; const stake = parseFloat(slip.stake) || 0; const win = stake > 0 ? toWin(stake, opt.odds) : 0;
                     return (
                       <div key={opt.id} style={S.stakeRow}>
                         <span style={S.stakeTeam}>{opt.label}</span>
@@ -954,18 +958,18 @@ export default function App() {
             <h3 style={S.marketTitle}>Standings</h3>
             <p style={S.marketSub}>Starting balance ${STARTING_BALANCE.toLocaleString()}</p>
             {leaderboard.length === 0 && <p style={S.emptyText}>No players yet</p>}
-            {leaderboard.map(([name, u], i) => {
-              const diff = u.balance - STARTING_BALANCE;
-              const pendingAmt = bets
-                .filter(b => b.username === name && b.status === "pending")
-                .reduce((sum, b) => sum + b.stake, 0);
+            {leaderboard.map(([name, u, pendingAmt, total], i) => {
+              const diff = total - STARTING_BALANCE;
               return (
                 <div key={name} style={{ ...S.boardRow, borderBottom: i < leaderboard.length - 1 ? "1px solid #1a1a24" : "none" }}>
                   <div style={S.boardLeft}><span style={S.boardRank}>#{i + 1}</span><span style={{ ...S.boardName, color: name === username ? "#d4a843" : "#d0d0d0" }}>{name}{name === username ? " · you" : ""}</span></div>
                   <div style={S.boardRight}>
-                    <span style={S.boardBal}>${u.balance.toFixed(2)}</span>
+                    <span style={S.boardBal}>${total.toFixed(2)}</span>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 10, color: "#4ade80" }}>${u.balance.toFixed(0)} cash</span>
+                      {pendingAmt > 0 && <span style={{ fontSize: 10, color: "#f59e0b" }}>${pendingAmt.toFixed(0)} in Open Bets</span>}
+                    </div>
                     <span style={{ fontSize: 11, color: diff >= 0 ? "#4ade80" : "#f87171" }}>{diff >= 0 ? "▲" : "▼"} ${Math.abs(diff).toFixed(2)}</span>
-                    {pendingAmt > 0 && <span style={{ fontSize: 10, color: "#f59e0b" }}>${pendingAmt.toFixed(0)} in Open Bets</span>}
                   </div>
                 </div>
               );
@@ -999,7 +1003,7 @@ function Toast({ n }) {
   return <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: n.type === "error" ? "#7f1d1d" : "#14532d", border: `1px solid ${n.type === "error" ? "#991b1b" : "#166534"}`, color: n.type === "error" ? "#fca5a5" : "#86efac", borderRadius: 50, padding: "12px 28px", fontFamily: "monospace", fontSize: 13, fontWeight: 700, zIndex: 100, whiteSpace: "nowrap", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>{n.msg}</div>;
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles ────────────────────────────────────────────────────────────────
 
 const S = {
   wrap: { minHeight: "100vh", background: "#080b10", color: "#e2e8f0", fontFamily: "'IBM Plex Mono','Courier New',monospace", paddingBottom: 140 },
@@ -1012,18 +1016,14 @@ const S = {
   loginLogoIcon: { fontSize: 36 },
   loginLogoTitle: { fontSize: 22, fontWeight: 700, letterSpacing: 5, color: "#d4a843", lineHeight: 1.2 },
   loginLogoSub: { fontSize: 10, color: "#3a4050", letterSpacing: 1.5, marginTop: 2 },
-  loginDivider: { height: 1, background: "#1a2030", margin: "0" },
+  loginDivider: { height: 1, background: "#1a2030" },
   loginLabel: { fontSize: 10, color: "#3a4050", letterSpacing: 2 },
-  notFoundBox: { background: "#12080a", border: "1px solid #3f1215", borderRadius: 12, padding: 14 },
-  notFoundText: { margin: "0 0 4px", fontSize: 13, color: "#fca5a5" },
-  notFoundSub: { margin: "0 0 12px", fontSize: 11, color: "#555" },
-  notFoundActions: { display: "flex", gap: 8 },
-  btnCreate: { flex: 1, background: "#d4a843", color: "#080b10", border: "none", borderRadius: 8, padding: "10px 8px", fontFamily: "monospace", fontWeight: 700, fontSize: 12, cursor: "pointer" },
-  btnRetry: { background: "transparent", color: "#555", border: "1px solid #1e2530", borderRadius: 8, padding: "10px 12px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
   input: { background: "#080b10", border: "1px solid #1e2530", borderRadius: 10, padding: "13px 16px", color: "#e2e8f0", fontFamily: "monospace", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" },
   btnPrimary: { background: "#d4a843", color: "#080b10", border: "none", borderRadius: 10, padding: "14px 24px", fontFamily: "monospace", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: 1 },
   btnGhost: { background: "transparent", color: "#2a3040", border: "1px solid #1a2030", borderRadius: 10, padding: "12px 24px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
   btnDanger: { background: "#2a0808", color: "#fca5a5", border: "1px solid #7f1d1d", borderRadius: 10, padding: "12px 20px", fontFamily: "monospace", fontSize: 13, cursor: "pointer", width: "100%" },
+  btnCreate: { flex: 1, background: "#d4a843", color: "#080b10", border: "none", borderRadius: 8, padding: "10px 8px", fontFamily: "monospace", fontWeight: 700, fontSize: 12, cursor: "pointer" },
+  btnRetry: { background: "transparent", color: "#555", border: "1px solid #1e2530", borderRadius: 8, padding: "10px 12px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
   header: { background: "#080b10", borderBottom: "1px solid #141820", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 },
   headerLeft: { display: "flex", alignItems: "center", gap: 10 },
   headerIcon: { fontSize: 18 },
@@ -1033,6 +1033,7 @@ const S = {
   balanceDollar: { fontSize: 11, color: "#4ade80" },
   balanceAmt: { fontSize: 14, fontWeight: 700, color: "#4ade80" },
   avatarBtn: { background: "#d4a843", color: "#080b10", border: "none", borderRadius: "50%", width: 32, height: 32, fontWeight: 700, cursor: "pointer", fontFamily: "monospace", fontSize: 13 },
+  headerBanner: { background: "linear-gradient(90deg, #1a1408, #2a1e08, #1a1408)", borderBottom: "1px solid #92400e", padding: "10px 18px", fontSize: 13, color: "#fbbf24", fontFamily: "monospace", textAlign: "center", lineHeight: 1.4 },
   tabs: { display: "flex", borderBottom: "1px solid #141820", background: "#080b10", position: "sticky", top: 57, zIndex: 9, overflowX: "auto" },
   tab: { flex: "1 0 auto", background: "transparent", border: "none", borderBottom: "2px solid transparent", color: "#2e3a4e", padding: "13px 10px", fontFamily: "monospace", fontSize: 11, letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap" },
   tabActive: { color: "#d4a843", borderBottom: "2px solid #d4a843" },
@@ -1103,14 +1104,14 @@ const S = {
   adminContent: { display: "flex", flexDirection: "column", gap: 14 },
   adminSection: { background: "#0e1318", border: "1px solid #1a2030", borderRadius: 14, padding: 18 },
   sectionHead: { margin: "0 0 14px", fontSize: 10, letterSpacing: 2.5, color: "#2e3a4e", fontWeight: 700 },
-  leaderRow: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #141820" },
+  leaderRow: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #141820", flexWrap: "wrap" },
   leaderRank: { fontSize: 10, color: "#2e3a4e", width: 22 },
-  leaderName: { flex: 1, fontSize: 14 },
+  leaderName: { flex: 1, fontSize: 14, minWidth: 80 },
   leaderBal: { fontSize: 14, fontWeight: 700, color: "#4ade80" },
   adjustBtn: { background: "#1a2030", border: "1px solid #2a3040", color: "#3a4a5a", borderRadius: 6, padding: "4px 10px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
   adjustRow: { display: "flex", gap: 8, alignItems: "center", padding: "8px 0 12px", borderBottom: "1px solid #141820" },
   settleCard: { background: "#080b10", border: "1px solid #1a2030", borderRadius: 10, padding: 14, marginBottom: 10 },
-  settleTitle: { fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 },
+  settleTitle: { fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" },
   settledBadge: { fontSize: 9, background: "#0d2a14", color: "#4ade80", borderRadius: 4, padding: "2px 8px", letterSpacing: 1 },
   settleOptions: { display: "flex", flexDirection: "column", gap: 6 },
   settleBtn: { background: "#0a1a0e", border: "1px solid #14532d", color: "#4ade80", borderRadius: 8, padding: "9px 14px", fontFamily: "monospace", fontSize: 12, cursor: "pointer", textAlign: "left" },
@@ -1126,7 +1127,6 @@ const S = {
   betRow: { background: "#080b10", border: "1px solid #1a2030", borderRadius: 10, padding: 12, marginBottom: 8 },
   betRowTop: { display: "flex", justifyContent: "space-between", marginBottom: 4 },
   betRowUser: { fontSize: 13, fontWeight: 700, color: "#d4a843" },
-  betRowStatus: { fontSize: 11, fontWeight: 700 },
   betRowMarket: { fontSize: 10, color: "#2e3a4e", marginBottom: 3 },
   betRowPick: { fontSize: 13, fontWeight: 700, marginBottom: 6 },
   betRowAmounts: { display: "flex", gap: 12, fontSize: 11, color: "#3a4a5a", flexWrap: "wrap" },
