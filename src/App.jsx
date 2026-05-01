@@ -119,15 +119,15 @@ function PinPad({ value, onChange, label, sublabel, error }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
       <div>
-        <p style={{ margin: "0 0 4px", fontSize: 13, color: "#8a9ab0", textAlign: "center" }}>{label}</p>
-        {sublabel && <p style={{ margin: 0, fontSize: 11, color: "#2e3a4e", textAlign: "center" }}>{sublabel}</p>}
+        <p style={{ margin: "0 0 4px", fontSize: 14.0, color: "#8a9ab0", textAlign: "center" }}>{label}</p>
+        {sublabel && <p style={{ margin: 0, fontSize: 12.0, color: "#2e3a4e", textAlign: "center" }}>{sublabel}</p>}
       </div>
       <div style={{ display: "flex", gap: 16 }}>
         {[0,1,2,3].map(i => (
           <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < value.length ? "#d4a843" : "transparent", border: `2px solid ${i < value.length ? "#d4a843" : error ? "#ef4444" : "#2e3a4e"}`, transition: "all 0.15s" }} />
         ))}
       </div>
-      {error && <p style={{ margin: "-10px 0 -6px", fontSize: 11, color: "#ef4444", textAlign: "center" }}>{error}</p>}
+      {error && <p style={{ margin: "-10px 0 -6px", fontSize: 12.0, color: "#ef4444", textAlign: "center" }}>{error}</p>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: 200 }}>
         {keys.map((k, i) => (
           <button key={i} onClick={() => press(k)} style={{ height: 54, background: k === "" ? "transparent" : "#0e1318", border: k === "" ? "none" : "1px solid #1e2530", borderRadius: 12, color: k === "⌫" ? "#8a9ab0" : "#e2e8f0", fontSize: k === "⌫" ? 18 : 20, fontWeight: 600, cursor: k === "" ? "default" : "pointer", fontFamily: "monospace", pointerEvents: k === "" ? "none" : "auto" }}>
@@ -268,7 +268,7 @@ export default function App() {
     if (loginStep === "pin_create") { setPendingPin(pin); setPinInput(""); setPinError(""); setLoginStep("pin_confirm"); return; }
     if (loginStep === "pin_confirm") {
       if (pin === pendingPin) {
-        const newUsers = { ...users, [name]: { balance: STARTING_BALANCE, pin } };
+        const newUsers = { ...users, [name]: { balance: STARTING_BALANCE, pin, createdAt: Date.now() } };
         await saveUsers(newUsers);
         setUsername(name); setScreen("lobby"); setInputName(""); setLoginStep("name"); setPinInput(""); setPinError(""); setPendingPin("");
       } else { setPinError("PINs don't match — start over"); setPinInput(""); setTimeout(() => { setLoginStep("pin_create"); setPinError(""); }, 800); }
@@ -315,10 +315,11 @@ export default function App() {
   });
 
   // Assign rank numbers — tied players share the same rank
-  const leaderboard = leaderboardRaw.map((entry, i, arr) => {
-    const rank = i === 0 ? 1 : (entry.total === arr[i-1].total ? arr[i-1]._rank : i + 1);
-    return { ...entry, _rank: rank };
-  });
+  const leaderboard = leaderboardRaw.reduce((acc, entry, i) => {
+    const rank = i === 0 ? 1 : (entry.total === acc[i-1].total ? acc[i-1]._rank : i + 1);
+    acc.push({ ...entry, _rank: rank });
+    return acc;
+  }, []);
 
   // Split into active bettors vs no-bets-yet
   const activePlayers = leaderboard.filter(p => bets.some(b => b.username === p.name));
@@ -340,38 +341,29 @@ export default function App() {
     return { totalStaked, totalPaid, net: totalStaked - totalPaid, betCount };
   }
 
+  function getPlayerLifetimePnl(playerName) {
+    const resolved = bets.filter(b => b.username === playerName && (b.status === "won" || b.status === "lost"));
+    const staked = resolved.reduce((s, b) => s + b.stake, 0);
+    const returned = resolved.filter(b => b.status === "won").reduce((s, b) => s + b.payout, 0);
+    return returned - staked; // positive = player up, negative = player down
+  }
+
   // Project house P&L if a specific option wins — honors original bet odds
+  // Straight bets only — parlays excluded because their multi-leg payouts
+  // can't be attributed to a single market outcome cleanly.
+  // Formula: house net = total staked on market - payout owed to winners of this option
+  // e.g. $1359 on GHG (-200) + $1225 on Slayers: if GHG wins, payout = $1359 * 1.5 = $2038.50
+  // house net = $2584 - $2038.50 = +$545.50
   function getOptionProjection(marketId, winningOptionId) {
-    const relevant = bets.filter(b => {
-      if (b.status === "voided") return false;
-      if (b.betType === "straight") return b.marketId === marketId && b.status === "pending";
-      if (b.betType === "parlay") return b.legs.some(l => l.marketId === marketId) && b.status === "pending";
-      return false;
-    });
-    let totalStaked = 0;
-    let totalPayout = 0;
-    for (const b of relevant) {
-      totalStaked += b.stake;
-      if (b.betType === "straight") {
-        if (b.optionId === winningOptionId) totalPayout += b.payout; // pays out at locked-in odds
-      } else if (b.betType === "parlay") {
-        // For parlay: if this leg would lose, parlay busts (no payout)
-        // If this leg would win, check if all other legs already resolved won
-        const thisLeg = b.legs.find(l => l.marketId === marketId);
-        if (thisLeg?.optionId !== winningOptionId) {
-          // This leg loses — parlay busts, house keeps stake (already counted in totalStaked)
-        } else {
-          // This leg wins — check other legs
-          const otherLegs = b.legs.filter(l => l.marketId !== marketId);
-          const otherAllWon = otherLegs.every(l => l.status === "won");
-          const otherAnyLost = otherLegs.some(l => l.status === "lost");
-          if (otherAllWon) totalPayout += b.payout;
-          // if otherAnyLost: parlay already busted, no payout
-          // if other legs still pending: we conservatively assume they'll win (worst case for house)
-          else if (!otherAnyLost) totalPayout += b.payout;
-        }
-      }
-    }
+    const straightBets = bets.filter(b =>
+      b.status === "pending" &&
+      b.betType === "straight" &&
+      b.marketId === marketId
+    );
+    const totalStaked = straightBets.reduce((s, b) => s + b.stake, 0);
+    const totalPayout = straightBets
+      .filter(b => b.optionId === winningOptionId)
+      .reduce((s, b) => s + b.payout, 0); // payout = stake + winnings at locked-in odds
     return { totalStaked, totalPayout, net: totalStaked - totalPayout };
   }
 
@@ -625,8 +617,8 @@ export default function App() {
           {loginStep === "pin_login" && (
             <>
               <div style={{ textAlign: "center", marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: "#8a9ab0" }}>Welcome back, </span>
-                <span style={{ fontSize: 12, color: "#d4a843", fontWeight: 700 }}>{name}</span>
+                <span style={{ fontSize: 13.0, color: "#8a9ab0" }}>Welcome back, </span>
+                <span style={{ fontSize: 13.0, color: "#d4a843", fontWeight: 700 }}>{name}</span>
               </div>
               <PinPad value={pinInput} onChange={p => { setPinInput(p); if (pinError) setPinError(""); }} label="Enter your PIN" error={pinError} />
               <button style={S.btnGhost} onClick={resetLoginToName}>← Back</button>
@@ -636,9 +628,9 @@ export default function App() {
           {loginStep === "pin_create" && (
             <>
               <div style={{ background: "#0e1c10", border: "1px solid #166534", borderRadius: 10, padding: "12px 14px" }}>
-                <p style={{ margin: "0 0 4px", fontSize: 13, color: "#4ade80", fontWeight: 700 }}>Account not found</p>
-                <p style={{ margin: "0 0 8px", fontSize: 12, color: "#8a9ab0" }}>No account for <strong style={{ color: "#e2e8f0" }}>{name}</strong>. Names are case-sensitive — double-check your spelling.</p>
-                <p style={{ margin: 0, fontSize: 11, color: "#4ade80" }}>If this is your first time, create an account below.</p>
+                <p style={{ margin: "0 0 4px", fontSize: 14.0, color: "#4ade80", fontWeight: 700 }}>Account not found</p>
+                <p style={{ margin: "0 0 8px", fontSize: 13.0, color: "#8a9ab0" }}>No account for <strong style={{ color: "#e2e8f0" }}>{name}</strong>. Names are case-sensitive — double-check your spelling.</p>
+                <p style={{ margin: 0, fontSize: 12.0, color: "#4ade80" }}>If this is your first time, create an account below.</p>
               </div>
               <PinPad value={pinInput} onChange={setPinInput} label="Choose a 4-digit PIN" sublabel="You'll use this every time you log in" />
               <button style={S.btnGhost} onClick={resetLoginToName}>← Back</button>
@@ -679,7 +671,7 @@ export default function App() {
       ) : (
         <>
           <div style={S.adminTabRow}>
-            {[["settle","⚖️ Settle"],["add","➕ Add"],["edit","✏️ Edit"],["bets","📋 Bets"],["danger","⚠️ Danger"]].map(([key, label]) => (
+            {[["settle","⚖️ Settle"],["players","👥 Players"],["add","➕ Add"],["edit","✏️ Edit"],["bets","📋 Bets"],["danger","⚠️ Danger"]].map(([key, label]) => (
               <button key={key} style={{ ...S.adminTab, ...(adminTab === key ? S.adminTabActive : {}) }} onClick={() => { setAdminTab(key); setEditingMarket(null); }}>{label}</button>
             ))}
           </div>
@@ -692,43 +684,13 @@ export default function App() {
                 <div style={{ ...S.adminSection, background: houseTotalNet >= 0 ? "#060e08" : "#0e0608", border: `1px solid ${houseTotalNet >= 0 ? "#166534" : "#7f1d1d"}` }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <p style={{ ...S.sectionHead, margin: 0 }}>HOUSE TAKE (ALL TIME)</p>
-                    <span style={{ fontSize: 22, fontWeight: 700, color: houseTotalNet >= 0 ? "#4ade80" : "#f87171" }}>
+                    <span style={{ fontSize: 23.0, fontWeight: 700, color: houseTotalNet >= 0 ? "#4ade80" : "#f87171" }}>
                       {houseTotalNet >= 0 ? "+" : ""}${houseTotalNet.toFixed(2)}
                     </span>
                   </div>
-                  <p style={{ margin: "6px 0 0", fontSize: 10, color: "#2e3a4e" }}>
+                  <p style={{ margin: "6px 0 0", fontSize: 11.0, color: "#2e3a4e" }}>
                     Across {allMarkets.filter(m => m.status === "settled").length} settled markets
                   </p>
-                </div>
-
-                {/* Players */}
-                <div style={S.adminSection}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                    <p style={{ ...S.sectionHead, margin: 0 }}>PLAYERS</p>
-                    <button onClick={toggleLeaderboard} style={{ ...S.adjustBtn, fontSize: 10, padding: "5px 12px", color: leaderboardVisible ? "#4ade80" : "#f59e0b", borderColor: leaderboardVisible ? "#166534" : "#92400e", background: leaderboardVisible ? "#0a1a0e" : "#1c1200" }}>
-                      {leaderboardVisible ? "👁 Standings ON" : "🙈 Standings OFF"}
-                    </button>
-                  </div>
-                  {leaderboard.length === 0 && <p style={S.emptyText}>No players yet</p>}
-                  {leaderboard.map(({ name, u, pendingAmt, _rank }) => (
-                    <div key={name}>
-                      <div style={S.leaderRow}>
-                        <span style={S.leaderRank}>#{_rank}</span>
-                        <span style={S.leaderName}>{name}</span>
-                        <span style={S.leaderBal}>${u.balance.toFixed(2)}</span>
-                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px" }} onClick={() => notify(`${name}'s PIN: ${u.pin || "none"}`, "success")}>PIN</button>
-                        <button style={S.adjustBtn} onClick={() => { setAdjustingUser(adjustingUser === name ? null : name); setAdjustAmt(""); }}>±</button>
-                        <button style={{ ...S.adjustBtn, fontSize: 10, padding: "4px 8px", color: "#f87171", borderColor: "#7f1d1d", background: "#2a0808" }} onClick={() => { if (window.confirm(`Delete ${name}?`)) deleteUser(name); }}>✕</button>
-                      </div>
-                      {adjustingUser === name && (
-                        <div style={S.adjustRow}>
-                          <input style={{ ...S.input, flex: 1 }} type="number" placeholder="+100 or -50" value={adjustAmt} onChange={e => setAdjustAmt(e.target.value)} />
-                          <button style={S.btnCreate} onClick={() => applyBalanceAdjust(name)}>Apply</button>
-                          <button style={S.btnRetry} onClick={() => setAdjustingUser(null)}>Cancel</button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
                 </div>
 
                 {/* Pause all */}
@@ -763,11 +725,11 @@ export default function App() {
                               const projNet = proj.net;
                               return (
                                 <div key={opt.id} style={{ marginBottom: 8, background: "#0a0c10", borderRadius: 6, padding: "7px 10px" }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#8a9ab0", marginBottom: 4 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.0, color: "#8a9ab0", marginBottom: 4 }}>
                                     <span style={{ fontWeight: 700, color: "#c8d0dc" }}>{opt.label}</span>
                                     <span style={{ color: "#d4a843" }}>{fmt(opt.odds)}</span>
                                   </div>
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#8a9ab0", marginBottom: 4 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.0, color: "#8a9ab0", marginBottom: 4 }}>
                                     <span>Action: ${amt.toFixed(0)} ({Math.round(pct * 100)}%)</span>
                                     <span style={{ fontWeight: 700, color: projNet >= 0 ? "#4ade80" : "#f87171" }}>
                                       If wins: {projNet >= 0 ? "+" : ""}${projNet.toFixed(2)} house
@@ -777,14 +739,14 @@ export default function App() {
                                 </div>
                               );
                             })}
-                            <div style={{ fontSize: 10, color: "#2e3a4e", marginTop: 2 }}>Total action: ${mTotal.toFixed(0)}</div>
+                            <div style={{ fontSize: 11.0, color: "#2e3a4e", marginTop: 2 }}>Total action: ${mTotal.toFixed(0)}</div>
                           </div>
                         )}
 
                         {/* Pause/open toggle for open/paused markets */}
                         {(market.status === "open" || market.status === "paused") && (
                           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-                            <button style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1c1200", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#f59e0b", fontSize: 11 }} onClick={() => togglePauseMarket(market.id)}>
+                            <button style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1c1200", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#f59e0b", fontSize: 12.0 }} onClick={() => togglePauseMarket(market.id)}>
                               {market.status === "paused" ? "▶ Open Betting" : "⏸ Pause Betting"}
                             </button>
                           </div>
@@ -798,7 +760,7 @@ export default function App() {
                           <>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                               <p style={S.winnerText}>🏆 {market.options.find(o => o.id === market.winner)?.label}</p>
-                              <button style={{ ...S.settleBtn, background: "#1a0a1a", borderColor: "#7f1d7f", color: "#e879f9", fontSize: 11, padding: "6px 12px" }}
+                              <button style={{ ...S.settleBtn, background: "#1a0a1a", borderColor: "#7f1d7f", color: "#e879f9", fontSize: 12.0, padding: "6px 12px" }}
                                 onClick={() => { if (window.confirm(`Unsettle "${market.title}"? This reverses all payouts.`)) unsettleMarket(market.id); }}>
                                 ↩ Unsettle
                               </button>
@@ -808,11 +770,11 @@ export default function App() {
                               style={{ cursor: "pointer", background: expandedSettled === market.id ? "#0a0a12" : "transparent", borderRadius: 6, padding: expandedSettled === market.id ? "8px 10px" : "0" }}
                               onClick={() => setExpandedSettled(expandedSettled === market.id ? null : market.id)}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span style={{ fontSize: 10, color: "#2e3a4e" }}>{expandedSettled === market.id ? "▲ hide" : "▼ house P&L"}</span>
-                                {pnl && <span style={{ fontSize: 12, fontWeight: 700, color: pnl.net >= 0 ? "#4ade80" : "#f87171" }}>{pnl.net >= 0 ? "+" : ""}${pnl.net.toFixed(2)}</span>}
+                                <span style={{ fontSize: 11.0, color: "#2e3a4e" }}>{expandedSettled === market.id ? "▲ hide" : "▼ house P&L"}</span>
+                                {pnl && <span style={{ fontSize: 13.0, fontWeight: 700, color: pnl.net >= 0 ? "#4ade80" : "#f87171" }}>{pnl.net >= 0 ? "+" : ""}${pnl.net.toFixed(2)}</span>}
                               </div>
                               {expandedSettled === market.id && pnl && (
-                                <div style={{ marginTop: 8, fontSize: 11, color: "#8a9ab0", display: "flex", flexDirection: "column", gap: 3 }}>
+                                <div style={{ marginTop: 8, fontSize: 12.0, color: "#8a9ab0", display: "flex", flexDirection: "column", gap: 3 }}>
                                   <div style={{ display: "flex", justifyContent: "space-between" }}><span>Total staked</span><span>${pnl.totalStaked.toFixed(2)}</span></div>
                                   <div style={{ display: "flex", justifyContent: "space-between" }}><span>Total paid out</span><span>${pnl.totalPaid.toFixed(2)}</span></div>
                                   <div style={{ display: "flex", justifyContent: "space-between" }}><span>Bets resolved</span><span>{pnl.betCount}</span></div>
@@ -830,6 +792,63 @@ export default function App() {
                   })}
                 </div>
               </>
+            )}
+
+            {/* ── PLAYERS TAB ── */}
+            {adminTab === "players" && (
+              <div style={S.adminSection}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <p style={{ ...S.sectionHead, margin: 0 }}>PLAYERS ({leaderboard.length})</p>
+                  <button onClick={toggleLeaderboard} style={{ ...S.adjustBtn, fontSize: 11.0, padding: "5px 12px", color: leaderboardVisible ? "#4ade80" : "#f59e0b", borderColor: leaderboardVisible ? "#166534" : "#92400e", background: leaderboardVisible ? "#0a1a0e" : "#1c1200" }}>
+                    {leaderboardVisible ? "👁 Standings ON" : "🙈 Standings OFF"}
+                  </button>
+                </div>
+                {leaderboard.length === 0 && <p style={S.emptyText}>No players yet</p>}
+                {leaderboard.map(({ name, u, pendingAmt, total, _rank }) => {
+                  const pnl = getPlayerLifetimePnl(name);
+                  const isTied = leaderboard.filter(p => p._rank === _rank).length > 1;
+                  const joined = u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Unknown";
+                  return (
+                    <div key={name}>
+                      <div style={{ ...S.leaderRow, alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
+                        {/* Rank */}
+                        <span style={{ fontSize: 16.0, fontWeight: 700, color: "#ffffff", width: 34, flexShrink: 0, paddingTop: 2 }}>
+                          {isTied ? `T${_rank}` : `#${_rank}`}
+                        </span>
+                        {/* Name + joined */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 15.0, fontWeight: 600, color: "#e2e8f0", marginBottom: 2 }}>{name}</div>
+                          <div style={{ fontSize: 11.0, color: "#2e3a4e" }}>Joined {joined}</div>
+                        </div>
+                        {/* Balances */}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, marginRight: 8 }}>
+                          <span style={{ fontSize: 15.0, fontWeight: 700, color: "#ffffff" }}>${total.toFixed(2)}</span>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <span style={{ fontSize: 11.0, color: "#4ade80" }}>${u.balance.toFixed(0)} cash</span>
+                            {pendingAmt > 0 && <span style={{ fontSize: 11.0, color: "#f59e0b" }}>${pendingAmt.toFixed(0)} bets</span>}
+                          </div>
+                          <span style={{ fontSize: 12.0, fontWeight: 700, color: pnl >= 0 ? "#4ade80" : "#f87171" }}>
+                            {pnl >= 0 ? "▲" : "▼"} ${Math.abs(pnl).toFixed(2)} lifetime
+                          </span>
+                        </div>
+                        {/* Actions */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <button style={{ ...S.adjustBtn, fontSize: 11.0, padding: "3px 8px" }} onClick={() => notify(`${name}'s PIN: ${u.pin || "none"}`, "success")}>PIN</button>
+                          <button style={S.adjustBtn} onClick={() => { setAdjustingUser(adjustingUser === name ? null : name); setAdjustAmt(""); }}>±</button>
+                          <button style={{ ...S.adjustBtn, fontSize: 11.0, padding: "3px 8px", color: "#f87171", borderColor: "#7f1d1d", background: "#2a0808" }} onClick={() => { if (window.confirm(`Delete ${name}?`)) deleteUser(name); }}>✕</button>
+                        </div>
+                      </div>
+                      {adjustingUser === name && (
+                        <div style={S.adjustRow}>
+                          <input style={{ ...S.input, flex: 1 }} type="number" placeholder="+100 or -50" value={adjustAmt} onChange={e => setAdjustAmt(e.target.value)} />
+                          <button style={S.btnCreate} onClick={() => applyBalanceAdjust(name)}>Apply</button>
+                          <button style={S.btnRetry} onClick={() => setAdjustingUser(null)}>Cancel</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
 
             {/* ── ADD TAB ── */}
@@ -857,7 +876,7 @@ export default function App() {
                 {/* Header message editor */}
                 <div style={S.adminSection}>
                   <p style={S.sectionHead}>LOBBY BANNER MESSAGE</p>
-                  <p style={{ fontSize: 11, color: "#2e3a4e", marginBottom: 10 }}>Shown to all players when they log in. Leave blank to hide.</p>
+                  <p style={{ fontSize: 12.0, color: "#2e3a4e", marginBottom: 10 }}>Shown to all players when they log in. Leave blank to hide.</p>
                   <textarea style={{ ...S.input, minHeight: 70, resize: "vertical", lineHeight: 1.5 }} placeholder="e.g. 🏆 Semifinals are LIVE — place your bets before 7pm!" value={headerDraft} onChange={e => setHeaderDraft(e.target.value)} />
                   <button style={{ ...S.btnPrimary, marginTop: 10, width: "100%" }} onClick={saveHeaderMsg}>
                     {headerDraft.trim() ? "Save Banner →" : "Clear Banner"}
@@ -869,7 +888,7 @@ export default function App() {
                   {allMarkets.map(market => (
                     <div key={market.id} style={S.settleCard}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{market.title}</div><div style={{ fontSize: 10, color: market.status === "paused" ? "#f59e0b" : "#2e3a4e" }}>{market.status === "paused" ? "⏸ Paused" : market.subtitle}</div></div>
+                        <div><div style={{ fontSize: 14.0, fontWeight: 700, marginBottom: 2 }}>{market.title}</div><div style={{ fontSize: 11.0, color: market.status === "paused" ? "#f59e0b" : "#2e3a4e" }}>{market.status === "paused" ? "⏸ Paused" : market.subtitle}</div></div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                           {(market.status === "open" || market.status === "paused") && <button style={S.settleBtn} onClick={() => startEdit(market)}>Edit</button>}
                           {(market.status === "open" || market.status === "paused") && (
@@ -892,7 +911,7 @@ export default function App() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                   <div>
                     <p style={{ ...S.sectionHead, margin: 0 }}>EDITING MARKET</p>
-                    {editingMarket.status === "paused" && <p style={{ margin: "4px 0 0", fontSize: 10, color: "#f59e0b" }}>⏸ Currently paused</p>}
+                    {editingMarket.status === "paused" && <p style={{ margin: "4px 0 0", fontSize: 11.0, color: "#f59e0b" }}>⏸ Currently paused</p>}
                   </div>
                   <button style={S.btnRetry} onClick={() => setEditingMarket(null)}>Cancel</button>
                 </div>
@@ -912,8 +931,8 @@ export default function App() {
                 {bets.length === 0 && <p style={S.emptyText}>No bets placed yet</p>}
                 {[...bets].reverse().map(b => (
                   <div key={b.id} style={S.betRow}>
-                    <div style={S.betRowTop}><span style={S.betRowUser}>{b.username}</span><span style={{ fontSize: 11, fontWeight: 700, color: b.status === "won" ? "#4ade80" : b.status === "lost" ? "#f87171" : b.status === "voided" ? "#888" : "#fbbf24" }}>{b.status === "won" ? "✓ WON" : b.status === "lost" ? "✗ LOST" : b.status === "voided" ? "↩ VOID" : "⏳ PENDING"}</span></div>
-                    {b.betType === "parlay" ? (<><div style={{ fontSize: 10, color: "#58a6ff", marginBottom: 4, letterSpacing: 1 }}>PARLAY · {fmt(b.combinedOdds)}</div>{b.legs.map((l, i) => (<div key={i} style={{ fontSize: 12, color: "#8a9ab0", marginBottom: 2 }}>{l.optionLabel} <span style={{ color: "#d4a843" }}>{fmt(l.odds)}</span><span style={{ marginLeft: 6, fontSize: 10, color: l.status === "won" ? "#4ade80" : l.status === "lost" ? "#f87171" : "#555" }}>{l.status === "won" ? "✓" : l.status === "lost" ? "✗" : "⏳"}</span></div>))}</>) : (<><div style={S.betRowMarket}>{b.marketTitle}</div><div style={S.betRowPick}>{b.optionLabel} <span style={{ color: "#d4a843" }}>{fmt(b.odds)}</span></div></>)}
+                    <div style={S.betRowTop}><span style={S.betRowUser}>{b.username}</span><span style={{ fontSize: 12.0, fontWeight: 700, color: b.status === "won" ? "#4ade80" : b.status === "lost" ? "#f87171" : b.status === "voided" ? "#888" : "#fbbf24" }}>{b.status === "won" ? "✓ WON" : b.status === "lost" ? "✗ LOST" : b.status === "voided" ? "↩ VOID" : "⏳ PENDING"}</span></div>
+                    {b.betType === "parlay" ? (<><div style={{ fontSize: 11.0, color: "#58a6ff", marginBottom: 4, letterSpacing: 1 }}>PARLAY · {fmt(b.combinedOdds)}</div>{b.legs.map((l, i) => (<div key={i} style={{ fontSize: 13.0, color: "#8a9ab0", marginBottom: 2 }}>{l.optionLabel} <span style={{ color: "#d4a843" }}>{fmt(l.odds)}</span><span style={{ marginLeft: 6, fontSize: 11.0, color: l.status === "won" ? "#4ade80" : l.status === "lost" ? "#f87171" : "#555" }}>{l.status === "won" ? "✓" : l.status === "lost" ? "✗" : "⏳"}</span></div>))}</>) : (<><div style={S.betRowMarket}>{b.marketTitle}</div><div style={S.betRowPick}>{b.optionLabel} <span style={{ color: "#d4a843" }}>{fmt(b.odds)}</span></div></>)}
                     <div style={S.betRowAmounts}><span>Stake <strong>${b.stake.toFixed(2)}</strong></span><span>Payout <strong>${b.payout.toFixed(2)}</strong></span><span style={{ marginLeft: "auto", color: "#444" }}>{fmtTime(b.placedAt)}</span></div>
                   </div>
                 ))}
@@ -924,7 +943,7 @@ export default function App() {
             {adminTab === "danger" && (
               <div style={S.adminSection}>
                 <p style={S.sectionHead}>DANGER ZONE</p>
-                <p style={{ color: "#555", fontSize: 13, marginBottom: 16, lineHeight: 1.6 }}>Resets all balances to ${STARTING_BALANCE.toLocaleString()}, clears all bets, and restores default markets. PINs are preserved.</p>
+                <p style={{ color: "#555", fontSize: 14.0, marginBottom: 16, lineHeight: 1.6 }}>Resets all balances to ${STARTING_BALANCE.toLocaleString()}, clears all bets, and restores default markets. PINs are preserved.</p>
                 <button style={S.btnDanger} onClick={resetAll}>Reset Everything</button>
               </div>
             )}
@@ -1027,8 +1046,8 @@ export default function App() {
                 )}
                 {slipMode === "parlay" && parlayEligible && (
                   <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 10, color: "#2e3a4e", letterSpacing: 1, marginBottom: 6 }}>{slipEntries.length}-LEG PARLAY · {fmt(parlayOdds)}</div>
-                    {slipLegs.map((l, i) => <div key={i} style={{ fontSize: 11, color: "#8a9ab0", marginBottom: 3 }}><span style={{ color: "#d4a843", marginRight: 6 }}>{fmt(l.odds)}</span>{l.optionLabel}</div>)}
+                    <div style={{ fontSize: 11.0, color: "#2e3a4e", letterSpacing: 1, marginBottom: 6 }}>{slipEntries.length}-LEG PARLAY · {fmt(parlayOdds)}</div>
+                    {slipLegs.map((l, i) => <div key={i} style={{ fontSize: 12.0, color: "#8a9ab0", marginBottom: 3 }}><span style={{ color: "#d4a843", marginRight: 6 }}>{fmt(l.odds)}</span>{l.optionLabel}</div>)}
                     <div style={{ ...S.stakeRow, marginTop: 10 }}>
                       <span style={S.stakeTeam}>PARLAY STAKE</span>
                       <div style={S.stakeInputWrap}><span style={S.stakeDollar}>$</span><input style={S.stakeInput} type="number" placeholder="0" value={parlayStake} onChange={e => setParlayStake(e.target.value)} min="1" /></div>
@@ -1063,7 +1082,7 @@ export default function App() {
                 return (
                   <div key={name} style={{ ...S.boardRow, borderBottom: !isLast ? "1px solid #1a1a24" : "none" }}>
                     <div style={S.boardLeft}>
-                      <span style={{ ...S.boardRank, fontSize: 15, color: "#ffffff", width: 32, fontWeight: 700 }}>
+                      <span style={{ ...S.boardRank, fontSize: 16.0, color: "#ffffff", width: 32, fontWeight: 700 }}>
                         {isTied ? `T${_rank}` : `#${_rank}`}
                       </span>
                       <span style={{ ...S.boardName, color: name === username ? "#d4a843" : "#d0d0d0" }}>{name}{name === username ? " · you" : ""}</span>
@@ -1071,10 +1090,10 @@ export default function App() {
                     <div style={S.boardRight}>
                       <span style={S.boardBal}>${total.toFixed(2)}</span>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <span style={{ fontSize: 10, color: "#4ade80" }}>${u.balance.toFixed(0)} cash</span>
-                        {pendingAmt > 0 && <span style={{ fontSize: 10, color: "#f59e0b" }}>${pendingAmt.toFixed(0)} in Open Bets</span>}
+                        <span style={{ fontSize: 11.0, color: "#4ade80" }}>${u.balance.toFixed(0)} cash</span>
+                        {pendingAmt > 0 && <span style={{ fontSize: 11.0, color: "#f59e0b" }}>${pendingAmt.toFixed(0)} in Open Bets</span>}
                       </div>
-                      <span style={{ fontSize: 11, color: diff >= 0 ? "#4ade80" : "#f87171" }}>{diff >= 0 ? "▲" : "▼"} ${Math.abs(diff).toFixed(2)}</span>
+                      <span style={{ fontSize: 12.0, color: diff >= 0 ? "#4ade80" : "#f87171" }}>{diff >= 0 ? "▲" : "▼"} ${Math.abs(diff).toFixed(2)}</span>
                     </div>
                   </div>
                 );
@@ -1083,11 +1102,11 @@ export default function App() {
 
             {inactivePlayers.length > 0 && (
               <div style={{ ...S.marketCard, opacity: 0.6 }}>
-                <p style={{ fontSize: 9, letterSpacing: 2, color: "#3a4a5a", fontWeight: 700, margin: "0 0 12px" }}>PLAYERS WHO HAVE NOT MADE BETS</p>
+                <p style={{ fontSize: 10.0, letterSpacing: 2, color: "#3a4a5a", fontWeight: 700, margin: "0 0 12px" }}>PLAYERS WHO HAVE NOT MADE BETS</p>
                 {inactivePlayers.map(({ name, u }, i) => (
                   <div key={name} style={{ ...S.boardRow, borderBottom: i < inactivePlayers.length - 1 ? "1px solid #1a1a24" : "none" }}>
                     <div style={S.boardLeft}>
-                      <span style={{ ...S.boardRank, fontSize: 15, color: "#3a4a5a", width: 32 }}>—</span>
+                      <span style={{ ...S.boardRank, fontSize: 16.0, color: "#3a4a5a", width: 32 }}>—</span>
                       <span style={{ ...S.boardName, color: name === username ? "#d4a843" : "#555" }}>{name}{name === username ? " · you" : ""}</span>
                     </div>
                     <div style={S.boardRight}>
@@ -1107,11 +1126,11 @@ export default function App() {
               <div key={b.id} style={{ ...S.betCard, ...(b.status === "won" ? S.betCardWon : b.status === "lost" ? S.betCardLost : b.status === "voided" ? { opacity: 0.5 } : {}) }}>
                 <div style={S.betCardTop}>
                   <span style={S.betMarket}>{b.betType === "parlay" ? <span style={{ color: "#58a6ff" }}>PARLAY · {fmt(b.combinedOdds)}</span> : b.marketTitle}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: b.status === "won" ? "#22c55e" : b.status === "lost" ? "#ef4444" : b.status === "voided" ? "#666" : "#f59e0b" }}>{b.status === "won" ? "✓ WON" : b.status === "lost" ? "✗ LOST" : b.status === "voided" ? "↩ VOID" : "⏳ PENDING"}</span>
+                  <span style={{ fontSize: 12.0, fontWeight: 700, color: b.status === "won" ? "#22c55e" : b.status === "lost" ? "#ef4444" : b.status === "voided" ? "#666" : "#f59e0b" }}>{b.status === "won" ? "✓ WON" : b.status === "lost" ? "✗ LOST" : b.status === "voided" ? "↩ VOID" : "⏳ PENDING"}</span>
                 </div>
-                {b.betType === "parlay" ? b.legs.map((l, i) => <div key={i} style={{ fontSize: 12, color: "#8a9ab0", marginBottom: 3, paddingLeft: 4 }}><span style={{ color: "#d4a843", marginRight: 6 }}>{fmt(l.odds)}</span>{l.optionLabel}<span style={{ marginLeft: 6, fontSize: 10, color: l.status === "won" ? "#4ade80" : l.status === "lost" ? "#f87171" : "#555" }}>{l.status === "won" ? "✓" : l.status === "lost" ? "✗" : ""}</span></div>) : <div style={S.betPick}>{b.optionLabel} <span style={{ color: "#d4a843" }}>{fmt(b.odds)}</span></div>}
+                {b.betType === "parlay" ? b.legs.map((l, i) => <div key={i} style={{ fontSize: 13.0, color: "#8a9ab0", marginBottom: 3, paddingLeft: 4 }}><span style={{ color: "#d4a843", marginRight: 6 }}>{fmt(l.odds)}</span>{l.optionLabel}<span style={{ marginLeft: 6, fontSize: 11.0, color: l.status === "won" ? "#4ade80" : l.status === "lost" ? "#f87171" : "#555" }}>{l.status === "won" ? "✓" : l.status === "lost" ? "✗" : ""}</span></div>) : <div style={S.betPick}>{b.optionLabel} <span style={{ color: "#d4a843" }}>{fmt(b.odds)}</span></div>}
                 <div style={S.betAmounts}><span>Stake <strong>${b.stake.toFixed(2)}</strong></span><span>Payout <strong>${b.payout.toFixed(2)}</strong></span></div>
-                <div style={{ fontSize: 10, color: "#333", marginTop: 6 }}>{fmtTime(b.placedAt)}</div>
+                <div style={{ fontSize: 11.0, color: "#333", marginTop: 6 }}>{fmtTime(b.placedAt)}</div>
               </div>
             ))}
           </>
@@ -1123,7 +1142,7 @@ export default function App() {
 }
 
 function Toast({ n }) {
-  return <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: n.type === "error" ? "#7f1d1d" : "#14532d", border: `1px solid ${n.type === "error" ? "#991b1b" : "#166534"}`, color: n.type === "error" ? "#fca5a5" : "#86efac", borderRadius: 50, padding: "12px 28px", fontFamily: "monospace", fontSize: 13, fontWeight: 700, zIndex: 100, whiteSpace: "nowrap", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>{n.msg}</div>;
+  return <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: n.type === "error" ? "#7f1d1d" : "#14532d", border: `1px solid ${n.type === "error" ? "#991b1b" : "#166534"}`, color: n.type === "error" ? "#fca5a5" : "#86efac", borderRadius: 50, padding: "12px 28px", fontFamily: "monospace", fontSize: 14.0, fontWeight: 700, zIndex: 100, whiteSpace: "nowrap", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>{n.msg}</div>;
 }
 
 // ─── Styles ────────────────────────────────────────────────────────────────
@@ -1136,121 +1155,121 @@ const S = {
   loginBg: { position: "fixed", inset: 0, background: "radial-gradient(ellipse 60% 50% at 50% 0%, rgba(212,168,67,0.07) 0%, transparent 70%)", pointerEvents: "none" },
   loginCard: { background: "#0e1318", border: "1px solid #1e2530", borderRadius: 20, padding: "36px 28px", maxWidth: 360, width: "100%", display: "flex", flexDirection: "column", gap: 16, position: "relative", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
   loginLogoRow: { display: "flex", alignItems: "center", gap: 14, marginBottom: 4 },
-  loginLogoIcon: { fontSize: 36 },
-  loginLogoTitle: { fontSize: 22, fontWeight: 700, letterSpacing: 5, color: "#d4a843", lineHeight: 1.2 },
-  loginLogoSub: { fontSize: 10, color: "#3a4050", letterSpacing: 1.5, marginTop: 2 },
+  loginLogoIcon: { fontSize: 37.0 },
+  loginLogoTitle: { fontSize: 23.0, fontWeight: 700, letterSpacing: 5, color: "#d4a843", lineHeight: 1.2 },
+  loginLogoSub: { fontSize: 11.0, color: "#3a4050", letterSpacing: 1.5, marginTop: 2 },
   loginDivider: { height: 1, background: "#1a2030" },
-  loginLabel: { fontSize: 10, color: "#3a4050", letterSpacing: 2 },
-  input: { background: "#080b10", border: "1px solid #1e2530", borderRadius: 10, padding: "13px 16px", color: "#e2e8f0", fontFamily: "monospace", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" },
-  btnPrimary: { background: "#d4a843", color: "#080b10", border: "none", borderRadius: 10, padding: "14px 24px", fontFamily: "monospace", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: 1 },
-  btnGhost: { background: "transparent", color: "#2a3040", border: "1px solid #1a2030", borderRadius: 10, padding: "12px 24px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
-  btnDanger: { background: "#2a0808", color: "#fca5a5", border: "1px solid #7f1d1d", borderRadius: 10, padding: "12px 20px", fontFamily: "monospace", fontSize: 13, cursor: "pointer", width: "100%" },
-  btnCreate: { flex: 1, background: "#d4a843", color: "#080b10", border: "none", borderRadius: 8, padding: "10px 8px", fontFamily: "monospace", fontWeight: 700, fontSize: 12, cursor: "pointer" },
-  btnRetry: { background: "transparent", color: "#555", border: "1px solid #1e2530", borderRadius: 8, padding: "10px 12px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
+  loginLabel: { fontSize: 11.0, color: "#3a4050", letterSpacing: 2 },
+  input: { background: "#080b10", border: "1px solid #1e2530", borderRadius: 10, padding: "13px 16px", color: "#e2e8f0", fontFamily: "monospace", fontSize: 15.0, outline: "none", width: "100%", boxSizing: "border-box" },
+  btnPrimary: { background: "#d4a843", color: "#080b10", border: "none", borderRadius: 10, padding: "14px 24px", fontFamily: "monospace", fontWeight: 700, fontSize: 15.0, cursor: "pointer", letterSpacing: 1 },
+  btnGhost: { background: "transparent", color: "#2a3040", border: "1px solid #1a2030", borderRadius: 10, padding: "12px 24px", fontFamily: "monospace", fontSize: 13.0, cursor: "pointer" },
+  btnDanger: { background: "#2a0808", color: "#fca5a5", border: "1px solid #7f1d1d", borderRadius: 10, padding: "12px 20px", fontFamily: "monospace", fontSize: 14.0, cursor: "pointer", width: "100%" },
+  btnCreate: { flex: 1, background: "#d4a843", color: "#080b10", border: "none", borderRadius: 8, padding: "10px 8px", fontFamily: "monospace", fontWeight: 700, fontSize: 13.0, cursor: "pointer" },
+  btnRetry: { background: "transparent", color: "#555", border: "1px solid #1e2530", borderRadius: 8, padding: "10px 12px", fontFamily: "monospace", fontSize: 13.0, cursor: "pointer" },
   header: { background: "#080b10", borderBottom: "1px solid #141820", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 },
   headerLeft: { display: "flex", alignItems: "center", gap: 10 },
-  headerIcon: { fontSize: 18 },
-  headerLogo: { fontWeight: 700, fontSize: 14, letterSpacing: 4, color: "#d4a843" },
+  headerIcon: { fontSize: 19.0 },
+  headerLogo: { fontWeight: 700, fontSize: 15.0, letterSpacing: 4, color: "#d4a843" },
   headerRight: { display: "flex", alignItems: "center", gap: 10 },
   balancePill: { background: "#0d1a10", border: "1px solid #1a3020", borderRadius: 20, padding: "5px 14px", display: "flex", alignItems: "baseline", gap: 2 },
-  balanceDollar: { fontSize: 11, color: "#4ade80" },
-  balanceAmt: { fontSize: 14, fontWeight: 700, color: "#4ade80" },
-  avatarBtn: { background: "#d4a843", color: "#080b10", border: "none", borderRadius: "50%", width: 32, height: 32, fontWeight: 700, cursor: "pointer", fontFamily: "monospace", fontSize: 13 },
-  headerBanner: { background: "linear-gradient(90deg, #1a1408, #2a1e08, #1a1408)", borderBottom: "1px solid #92400e", padding: "10px 18px", fontSize: 13, color: "#fbbf24", fontFamily: "monospace", textAlign: "center", lineHeight: 1.4 },
+  balanceDollar: { fontSize: 12.0, color: "#4ade80" },
+  balanceAmt: { fontSize: 15.0, fontWeight: 700, color: "#4ade80" },
+  avatarBtn: { background: "#d4a843", color: "#080b10", border: "none", borderRadius: "50%", width: 32, height: 32, fontWeight: 700, cursor: "pointer", fontFamily: "monospace", fontSize: 14.0 },
+  headerBanner: { background: "linear-gradient(90deg, #1a1408, #2a1e08, #1a1408)", borderBottom: "1px solid #92400e", padding: "10px 18px", fontSize: 14.0, color: "#fbbf24", fontFamily: "monospace", textAlign: "center", lineHeight: 1.4 },
   tabs: { display: "flex", borderBottom: "1px solid #141820", background: "#080b10", position: "sticky", top: 57, zIndex: 9, overflowX: "auto" },
-  tab: { flex: "1 0 auto", background: "transparent", border: "none", borderBottom: "2px solid transparent", color: "#2e3a4e", padding: "13px 10px", fontFamily: "monospace", fontSize: 11, letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap" },
+  tab: { flex: "1 0 auto", background: "transparent", border: "none", borderBottom: "2px solid transparent", color: "#2e3a4e", padding: "13px 10px", fontFamily: "monospace", fontSize: 12.0, letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap" },
   tabActive: { color: "#d4a843", borderBottom: "2px solid #d4a843" },
   content: { padding: "16px 14px 120px" },
   marketCard: { background: "#0e1318", border: "1px solid #1a2030", borderRadius: 14, padding: 18, marginBottom: 12 },
   marketTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  leagueTag: { fontSize: 9, fontWeight: 700, letterSpacing: 2.5, borderRadius: 4, padding: "3px 8px" },
-  settledTag: { fontSize: 9, background: "#0d2a14", color: "#4ade80", borderRadius: 4, padding: "3px 8px", letterSpacing: 1 },
-  pausedTag: { fontSize: 9, background: "#1c1200", color: "#f59e0b", borderRadius: 4, padding: "3px 8px", letterSpacing: 1, border: "1px solid #92400e" },
-  pausedBadge: { fontSize: 9, background: "#1c1200", color: "#f59e0b", borderRadius: 4, padding: "2px 8px", letterSpacing: 1, border: "1px solid #92400e" },
-  pausedNotice: { margin: "0 0 12px", fontSize: 12, color: "#92400e", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: "8px 12px" },
-  maxBetTag: { fontSize: 9, background: "#1a1408", color: "#d4a843", borderRadius: 4, padding: "3px 8px" },
-  actionTag: { fontSize: 9, color: "#3a4a5a" },
-  marketTitle: { margin: "0 0 3px", fontSize: 16, fontWeight: 700, lineHeight: 1.3 },
-  marketSub: { margin: "0 0 14px", fontSize: 10, color: "#2e3a4e" },
-  winnerAnnounce: { margin: "0 0 12px", fontSize: 13, color: "#d4a843", fontWeight: 700, background: "rgba(212,168,67,0.06)", border: "1px solid rgba(212,168,67,0.15)", borderRadius: 8, padding: "8px 12px" },
+  leagueTag: { fontSize: 10.0, fontWeight: 700, letterSpacing: 2.5, borderRadius: 4, padding: "3px 8px" },
+  settledTag: { fontSize: 10.0, background: "#0d2a14", color: "#4ade80", borderRadius: 4, padding: "3px 8px", letterSpacing: 1 },
+  pausedTag: { fontSize: 10.0, background: "#1c1200", color: "#f59e0b", borderRadius: 4, padding: "3px 8px", letterSpacing: 1, border: "1px solid #92400e" },
+  pausedBadge: { fontSize: 10.0, background: "#1c1200", color: "#f59e0b", borderRadius: 4, padding: "2px 8px", letterSpacing: 1, border: "1px solid #92400e" },
+  pausedNotice: { margin: "0 0 12px", fontSize: 13.0, color: "#92400e", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: "8px 12px" },
+  maxBetTag: { fontSize: 10.0, background: "#1a1408", color: "#d4a843", borderRadius: 4, padding: "3px 8px" },
+  actionTag: { fontSize: 10.0, color: "#3a4a5a" },
+  marketTitle: { margin: "0 0 3px", fontSize: 17.0, fontWeight: 700, lineHeight: 1.3 },
+  marketSub: { margin: "0 0 14px", fontSize: 11.0, color: "#2e3a4e" },
+  winnerAnnounce: { margin: "0 0 12px", fontSize: 14.0, color: "#d4a843", fontWeight: 700, background: "rgba(212,168,67,0.06)", border: "1px solid rgba(212,168,67,0.15)", borderRadius: 8, padding: "8px 12px" },
   optionGrid: { display: "flex", flexDirection: "column", gap: 7 },
   optionBtn: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "#080b10", border: "1px solid #1a2030", borderRadius: 10, padding: "12px 16px", cursor: "pointer", width: "100%" },
   optionBtnSelected: { background: "#0a1a0e", border: "1px solid #166534" },
   optionBtnDisabled: { opacity: 0.35, cursor: "not-allowed" },
-  optionLabel: { fontSize: 13, color: "#c8d0dc", fontFamily: "monospace", textAlign: "left" },
-  optionOdds: { fontSize: 14, fontWeight: 700, color: "#d4a843" },
+  optionLabel: { fontSize: 14.0, color: "#c8d0dc", fontFamily: "monospace", textAlign: "left" },
+  optionOdds: { fontSize: 15.0, fontWeight: 700, color: "#d4a843" },
   optionOddsSelected: { color: "#4ade80" },
-  optionMoney: { fontSize: 9, color: "#2e3a4e" },
+  optionMoney: { fontSize: 10.0, color: "#2e3a4e" },
   moneyBar: { height: 3, background: "#1a2030", borderRadius: 2, marginTop: 3, marginBottom: 4, overflow: "hidden" },
   moneyBarFill: { height: "100%", borderRadius: 2, transition: "width 0.4s ease", opacity: 0.5 },
   stakeRow: { marginTop: 8, background: "#080b10", border: "1px solid #166534", borderRadius: 10, padding: "10px 14px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  stakeTeam: { fontSize: 10, color: "#4ade80", flex: "1 1 100%", marginBottom: 2 },
+  stakeTeam: { fontSize: 11.0, color: "#4ade80", flex: "1 1 100%", marginBottom: 2 },
   stakeInputWrap: { display: "flex", alignItems: "center", gap: 4 },
-  stakeDollar: { color: "#4ade80", fontSize: 14, fontWeight: 700 },
-  stakeInput: { background: "transparent", border: "none", borderBottom: "1px solid #166534", color: "#e2e8f0", fontFamily: "monospace", fontSize: 14, width: 90, outline: "none", padding: "2px 4px" },
-  toWin: { fontSize: 12, color: "#22c55e", marginLeft: "auto" },
+  stakeDollar: { color: "#4ade80", fontSize: 15.0, fontWeight: 700 },
+  stakeInput: { background: "transparent", border: "none", borderBottom: "1px solid #166534", color: "#e2e8f0", fontFamily: "monospace", fontSize: 15.0, width: 90, outline: "none", padding: "2px 4px" },
+  toWin: { fontSize: 13.0, color: "#22c55e", marginLeft: "auto" },
   slipFooter: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#0e1318", borderTop: "1px solid #1e2530", padding: "14px 16px", zIndex: 20, boxShadow: "0 -8px 32px rgba(0,0,0,0.5)" },
   slipModeRow: { display: "flex", gap: 6, marginBottom: 12 },
-  slipModeBtn: { flex: 1, background: "#080b10", border: "1px solid #1e2530", color: "#3a4a5a", borderRadius: 8, padding: "8px 12px", fontFamily: "monospace", fontSize: 11, cursor: "pointer" },
+  slipModeBtn: { flex: 1, background: "#080b10", border: "1px solid #1e2530", color: "#3a4a5a", borderRadius: 8, padding: "8px 12px", fontFamily: "monospace", fontSize: 12.0, cursor: "pointer" },
   slipModeBtnActive: { background: "#1a2010", border: "1px solid #166534", color: "#4ade80", fontWeight: 700 },
   slipSummary: { background: "#080b10", border: "1px solid #1e2530", borderRadius: 10, padding: "10px 14px", marginBottom: 10 },
   slipSummaryRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  slipSummaryLabel: { fontSize: 10, color: "#2e3a4e" },
-  slipSummaryVal: { fontSize: 13, fontWeight: 700 },
-  placeBetBtn: { width: "100%", background: "#d4a843", color: "#080b10", border: "none", borderRadius: 10, padding: "14px", fontFamily: "monospace", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: 1 },
+  slipSummaryLabel: { fontSize: 11.0, color: "#2e3a4e" },
+  slipSummaryVal: { fontSize: 14.0, fontWeight: 700 },
+  placeBetBtn: { width: "100%", background: "#d4a843", color: "#080b10", border: "none", borderRadius: 10, padding: "14px", fontFamily: "monospace", fontWeight: 700, fontSize: 15.0, cursor: "pointer", letterSpacing: 1 },
   betCard: { background: "#0e1318", border: "1px solid #1a2030", borderRadius: 12, padding: 16, marginBottom: 10 },
   betCardWon: { border: "1px solid #14532d", background: "#060e08" },
   betCardLost: { border: "1px solid #7f1d1d", background: "#0e0608" },
   betCardTop: { display: "flex", justifyContent: "space-between", marginBottom: 8 },
-  betMarket: { fontSize: 10, color: "#2e3a4e" },
-  betPick: { fontSize: 15, fontWeight: 700, marginBottom: 8 },
-  betAmounts: { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#3a4a5a", marginTop: 8 },
+  betMarket: { fontSize: 11.0, color: "#2e3a4e" },
+  betPick: { fontSize: 16.0, fontWeight: 700, marginBottom: 8 },
+  betAmounts: { display: "flex", justifyContent: "space-between", fontSize: 13.0, color: "#3a4a5a", marginTop: 8 },
   empty: { textAlign: "center", padding: "60px 20px" },
-  emptyText: { color: "#2e3a4e", fontSize: 13, margin: 0 },
+  emptyText: { color: "#2e3a4e", fontSize: 14.0, margin: 0 },
   boardRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0" },
   boardLeft: { display: "flex", alignItems: "center", gap: 10 },
   boardRight: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 },
-  boardRank: { fontSize: 10, color: "#2e3a4e", width: 24 },
-  boardName: { fontSize: 14, fontWeight: 600 },
-  boardBal: { fontSize: 15, fontWeight: 700, color: "#4ade80" },
+  boardRank: { fontSize: 11.0, color: "#2e3a4e", width: 24 },
+  boardName: { fontSize: 15.0, fontWeight: 600 },
+  boardBal: { fontSize: 16.0, fontWeight: 700, color: "#4ade80" },
   adminWrap: { minHeight: "100vh", background: "#080b10", color: "#e2e8f0", fontFamily: "monospace", padding: "20px 16px" },
   adminHeader: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24 },
-  backBtn: { background: "transparent", border: "1px solid #1a2030", color: "#3a4a5a", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontFamily: "monospace", fontSize: 12 },
+  backBtn: { background: "transparent", border: "1px solid #1a2030", color: "#3a4a5a", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontFamily: "monospace", fontSize: 13.0 },
   adminTitleRow: { display: "flex", flexDirection: "column" },
-  adminTitle: { fontSize: 16, letterSpacing: 5, color: "#d4a843", fontWeight: 700, lineHeight: 1 },
-  adminTitleSub: { fontSize: 10, color: "#2e3a4e", letterSpacing: 2, marginTop: 3 },
+  adminTitle: { fontSize: 17.0, letterSpacing: 5, color: "#d4a843", fontWeight: 700, lineHeight: 1 },
+  adminTitleSub: { fontSize: 11.0, color: "#2e3a4e", letterSpacing: 2, marginTop: 3 },
   pinWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 300 },
-  pinLabel: { color: "#3a4a5a", fontSize: 13, margin: 0 },
+  pinLabel: { color: "#3a4a5a", fontSize: 14.0, margin: 0 },
   adminTabRow: { display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" },
-  adminTab: { background: "#0e1318", border: "1px solid #1a2030", color: "#3a4a5a", borderRadius: 8, padding: "8px 14px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
+  adminTab: { background: "#0e1318", border: "1px solid #1a2030", color: "#3a4a5a", borderRadius: 8, padding: "8px 14px", fontFamily: "monospace", fontSize: 13.0, cursor: "pointer" },
   adminTabActive: { background: "#d4a843", color: "#080b10", border: "1px solid #d4a843", fontWeight: 700 },
   adminContent: { display: "flex", flexDirection: "column", gap: 14 },
   adminSection: { background: "#0e1318", border: "1px solid #1a2030", borderRadius: 14, padding: 18 },
-  sectionHead: { margin: "0 0 14px", fontSize: 10, letterSpacing: 2.5, color: "#2e3a4e", fontWeight: 700 },
+  sectionHead: { margin: "0 0 14px", fontSize: 11.0, letterSpacing: 2.5, color: "#2e3a4e", fontWeight: 700 },
   leaderRow: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #141820", flexWrap: "wrap" },
-  leaderRank: { fontSize: 10, color: "#2e3a4e", width: 22 },
-  leaderName: { flex: 1, fontSize: 14, minWidth: 80 },
-  leaderBal: { fontSize: 14, fontWeight: 700, color: "#4ade80" },
-  adjustBtn: { background: "#1a2030", border: "1px solid #2a3040", color: "#3a4a5a", borderRadius: 6, padding: "4px 10px", fontFamily: "monospace", fontSize: 12, cursor: "pointer" },
+  leaderRank: { fontSize: 11.0, color: "#2e3a4e", width: 22 },
+  leaderName: { flex: 1, fontSize: 15.0, minWidth: 80 },
+  leaderBal: { fontSize: 15.0, fontWeight: 700, color: "#4ade80" },
+  adjustBtn: { background: "#1a2030", border: "1px solid #2a3040", color: "#3a4a5a", borderRadius: 6, padding: "4px 10px", fontFamily: "monospace", fontSize: 13.0, cursor: "pointer" },
   adjustRow: { display: "flex", gap: 8, alignItems: "center", padding: "8px 0 12px", borderBottom: "1px solid #141820" },
   settleCard: { background: "#080b10", border: "1px solid #1a2030", borderRadius: 10, padding: 14, marginBottom: 10 },
-  settleTitle: { fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" },
-  settledBadge: { fontSize: 9, background: "#0d2a14", color: "#4ade80", borderRadius: 4, padding: "2px 8px", letterSpacing: 1 },
+  settleTitle: { fontSize: 14.0, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" },
+  settledBadge: { fontSize: 10.0, background: "#0d2a14", color: "#4ade80", borderRadius: 4, padding: "2px 8px", letterSpacing: 1 },
   settleOptions: { display: "flex", flexDirection: "column", gap: 6 },
-  settleBtn: { background: "#0a1a0e", border: "1px solid #14532d", color: "#4ade80", borderRadius: 8, padding: "9px 14px", fontFamily: "monospace", fontSize: 12, cursor: "pointer", textAlign: "left" },
-  winnerText: { margin: 0, fontSize: 13, color: "#d4a843" },
+  settleBtn: { background: "#0a1a0e", border: "1px solid #14532d", color: "#4ade80", borderRadius: 8, padding: "9px 14px", fontFamily: "monospace", fontSize: 13.0, cursor: "pointer", textAlign: "left" },
+  winnerText: { margin: 0, fontSize: 14.0, color: "#d4a843" },
   formRow: { marginBottom: 14 },
-  formLabel: { display: "block", fontSize: 10, color: "#2e3a4e", letterSpacing: 2, marginBottom: 6, fontWeight: 700 },
+  formLabel: { display: "block", fontSize: 11.0, color: "#2e3a4e", letterSpacing: 2, marginBottom: 6, fontWeight: 700 },
   toggleRow: { display: "flex", gap: 8 },
-  toggleBtn: { flex: 1, background: "#080b10", border: "1px solid #1a2030", color: "#3a4a5a", borderRadius: 8, padding: 10, fontFamily: "monospace", fontSize: 13, cursor: "pointer" },
+  toggleBtn: { flex: 1, background: "#080b10", border: "1px solid #1a2030", color: "#3a4a5a", borderRadius: 8, padding: 10, fontFamily: "monospace", fontSize: 14.0, cursor: "pointer" },
   toggleBtnActive: { background: "#d4a843", color: "#080b10", border: "1px solid #d4a843", fontWeight: 700 },
   oddsRow: { display: "flex", gap: 8 },
-  removeBtn: { background: "#2a0808", color: "#fca5a5", border: "none", borderRadius: 6, width: 36, height: 44, cursor: "pointer", flexShrink: 0, fontSize: 12 },
-  addOptionBtn: { background: "transparent", border: "1px dashed #1a2030", color: "#2e3a4e", borderRadius: 8, padding: 10, fontFamily: "monospace", fontSize: 12, cursor: "pointer", width: "100%", marginTop: 4 },
+  removeBtn: { background: "#2a0808", color: "#fca5a5", border: "none", borderRadius: 6, width: 36, height: 44, cursor: "pointer", flexShrink: 0, fontSize: 13.0 },
+  addOptionBtn: { background: "transparent", border: "1px dashed #1a2030", color: "#2e3a4e", borderRadius: 8, padding: 10, fontFamily: "monospace", fontSize: 13.0, cursor: "pointer", width: "100%", marginTop: 4 },
   betRow: { background: "#080b10", border: "1px solid #1a2030", borderRadius: 10, padding: 12, marginBottom: 8 },
   betRowTop: { display: "flex", justifyContent: "space-between", marginBottom: 4 },
-  betRowUser: { fontSize: 13, fontWeight: 700, color: "#d4a843" },
-  betRowMarket: { fontSize: 10, color: "#2e3a4e", marginBottom: 3 },
-  betRowPick: { fontSize: 13, fontWeight: 700, marginBottom: 6 },
-  betRowAmounts: { display: "flex", gap: 12, fontSize: 11, color: "#3a4a5a", flexWrap: "wrap" },
+  betRowUser: { fontSize: 14.0, fontWeight: 700, color: "#d4a843" },
+  betRowMarket: { fontSize: 11.0, color: "#2e3a4e", marginBottom: 3 },
+  betRowPick: { fontSize: 14.0, fontWeight: 700, marginBottom: 6 },
+  betRowAmounts: { display: "flex", gap: 12, fontSize: 12.0, color: "#3a4a5a", flexWrap: "wrap" },
 };
