@@ -364,16 +364,35 @@ export default function App() {
   // e.g. $1359 on GHG (-200) + $1225 on Slayers: if GHG wins, payout = $1359 * 1.5 = $2038.50
   // house net = $2584 - $2038.50 = +$545.50
   function getOptionProjection(marketId, winningOptionId) {
+    // Straight bets on this market
     const straightBets = bets.filter(b =>
       b.status === "pending" &&
       b.betType === "straight" &&
       b.marketId === marketId
     );
-    const totalStaked = straightBets.reduce((s, b) => s + b.stake, 0);
-    const totalPayout = straightBets
+    const straightStaked = straightBets.reduce((s, b) => s + b.stake, 0);
+    const straightPayout = straightBets
       .filter(b => b.optionId === winningOptionId)
-      .reduce((s, b) => s + b.payout, 0); // payout = stake + winnings at locked-in odds
-    return { totalStaked, totalPayout, net: totalStaked - totalPayout };
+      .reduce((s, b) => s + b.payout, 0);
+
+    // Parlay bets: count stakes from parlays that would BUST if this market's
+    // losing options lose (i.e. parlays betting on any option OTHER than the winner).
+    // We add these to totalStaked — house keeps them.
+    // We do NOT subtract parlay payouts when winner wins (too complex, skipped as agreed).
+    const parlayBustedStakes = bets
+      .filter(b =>
+        b.status === "pending" &&
+        b.betType === "parlay"
+      )
+      .filter(b => {
+        const leg = b.legs.find(l => l.marketId === marketId);
+        // This parlay has a leg on this market, and it's on the LOSING option
+        return leg && leg.optionId !== winningOptionId;
+      })
+      .reduce((s, b) => s + b.stake, 0);
+
+    const totalStaked = straightStaked + parlayBustedStakes;
+    return { totalStaked, totalPayout: straightPayout, net: totalStaked - straightPayout };
   }
 
   const houseTotalNet = allMarkets
@@ -486,6 +505,35 @@ export default function App() {
     const newMarkets = { games: markets.games.map(reopen), futures: markets.futures.map(reopen) };
     await saveUsers(newUsers); await saveMarkets(newMarkets); await saveBets(newBets);
     notify("Market reopened — payouts reversed ↩");
+  }
+
+  async function eliminateOption(marketId, losingOptionId) {
+    // Mark bets on this option as lost, refund nothing — market stays open for remaining options
+    const newUsers = { ...users };
+    const newBets = bets.map(b => {
+      if (b.status !== "pending") return b;
+      if (b.betType === "straight" && b.marketId === marketId && b.optionId === losingOptionId) {
+        return { ...b, status: "lost" };
+      }
+      if (b.betType === "parlay") {
+        const leg = b.legs.find(l => l.marketId === marketId && l.optionId === losingOptionId);
+        if (!leg) return b;
+        const newLegs = b.legs.map(l =>
+          l.marketId === marketId && l.optionId === losingOptionId ? { ...l, status: "lost" } : l
+        );
+        // Parlay busts — already lost
+        return { ...b, legs: newLegs, status: "lost" };
+      }
+      return b;
+    });
+    // Mark the option as eliminated on the market object
+    const markElim = m => m.id === marketId
+      ? { ...m, eliminated: [...(m.eliminated || []), losingOptionId] }
+      : m;
+    const newMarkets = { games: markets.games.map(markElim), futures: markets.futures.map(markElim) };
+    await saveUsers(newUsers); await saveMarkets(newMarkets); await saveBets(newBets);
+    const opt = allMarkets.find(m => m.id === marketId)?.options.find(o => o.id === losingOptionId);
+    notify(`${opt?.label} eliminated — bets resolved as losses`);
   }
 
   async function voidMarket(marketId) {
@@ -763,7 +811,29 @@ export default function App() {
 
                         {market.status === "open" || market.status === "paused" ? (
                           <div style={S.settleOptions}>
-                            {market.options.map(opt => <button key={opt.id} style={S.settleBtn} onClick={() => settleMarket(market.id, opt.id)}>✓ {opt.label}</button>)}
+                            {market.options.map(opt => {
+                              const isElim = (market.eliminated || []).includes(opt.id);
+                              if (isElim) {
+                                return (
+                                  <div key={opt.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "#fff1f2", border: "1px solid #fecaca", borderRadius: 8, opacity: 0.6 }}>
+                                    <span style={{ fontSize: 13.0, color: "#ef4444", fontWeight: 600 }}>✗ {opt.label}</span>
+                                    <span style={{ fontSize: 11.0, color: "#ef4444", marginLeft: "auto" }}>ELIMINATED</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={opt.id} style={{ display: "flex", gap: 6 }}>
+                                  <button style={{ ...S.settleBtn, flex: 1 }} onClick={() => settleMarket(market.id, opt.id)}>✓ {opt.label}</button>
+                                  {market.type === "future" && (
+                                    <button
+                                      style={{ ...S.settleBtn, background: "#fff1f2", borderColor: "#fecaca", color: "#ef4444", padding: "9px 12px", flex: "0 0 auto" }}
+                                      onClick={() => { if (window.confirm(`Eliminate ${opt.label}? All bets on them will be marked as losses.`)) eliminateOption(market.id, opt.id); }}>
+                                      ✗ Out
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
                           <>
@@ -1013,15 +1083,19 @@ export default function App() {
                   <div style={S.optionGrid}>
                     {market.options.map(opt => {
                       const selected = !!betSlip[opt.id];
-                      const disabled = market.status === "settled" || market.status === "paused";
+                      const isElim = (market.eliminated || []).includes(opt.id);
+                      const disabled = market.status === "settled" || market.status === "paused" || isElim;
                       const optTotal = optionTotals[opt.id] || 0;
                       const pct = marketBetTotal > 0 ? optTotal / marketBetTotal : 0;
                       return (
                         <div key={opt.id}>
-                          <button disabled={disabled} style={{ ...S.optionBtn, ...(selected ? S.optionBtnSelected : {}), ...(disabled ? S.optionBtnDisabled : {}) }} onClick={() => !disabled && togglePick(market.id, opt.id)}>
-                            <span style={S.optionLabel}>{opt.label}</span>
+                          <button disabled={disabled} style={{ ...S.optionBtn, ...(selected ? S.optionBtnSelected : {}), ...(disabled ? S.optionBtnDisabled : {}), ...(isElim ? { background: "#fff1f2", borderColor: "#fecaca" } : {}) }} onClick={() => !disabled && togglePick(market.id, opt.id)}>
+                            <span style={S.optionLabel}>
+                              {opt.label}
+                              {isElim && <span style={{ fontSize: 11.0, color: "#ef4444", marginLeft: 8, fontWeight: 600 }}>OUT</span>}
+                            </span>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                              <span style={{ ...S.optionOdds, ...(selected ? S.optionOddsSelected : {}) }}>{fmt(opt.odds)}</span>
+                              <span style={{ ...S.optionOdds, ...(selected ? S.optionOddsSelected : {}), ...(isElim ? { color: "#ef4444", textDecoration: "line-through" } : {}) }}>{fmt(opt.odds)}</span>
                               {marketBetTotal > 0 && <span style={S.optionMoney}>${optTotal.toFixed(0)} · {Math.round(pct * 100)}%</span>}
                             </div>
                           </button>
