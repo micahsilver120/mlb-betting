@@ -1242,23 +1242,20 @@ export default function App() {
                 });
 
                 // Render a bet button cell
-                function BetCell({ opt, market, colType }) {
-                  if (!opt) return <div style={GS.betCellEmpty}/>;
+                // Inline cell renderer (not a component — avoids React remount issues)
+                const renderCell = (opt, market, colType) => {
+                  if (!opt) return <div key="empty" style={GS.betCellEmpty}/>;
                   const selected = !!betSlip[opt.id];
                   const isElim = (market.eliminated||[]).includes(opt.id);
                   const disabled = market.status === "settled" || market.status === "paused" || isElim;
                   const optTotal = optionTotals[opt.id] || 0;
                   const colTotal = market.options.reduce((s,o)=>s+(optionTotals[o.id]||0),0);
                   const pct = colTotal > 0 ? optTotal/colTotal : 0;
-
-                  // Check if clicking this would create a same-game conflict in parlay mode
                   const wouldConflict = slipMode === "parlay" && slipFromThisGroup.length > 0 &&
                     !slipFromThisGroup.some(l => l.optionId === opt.id);
-
                   const isSettledWin = market.status === "settled" && market.winner === opt.id;
-
                   return (
-                    <div style={{ flex: 1 }}>
+                    <div key={opt.id} style={{ flex: 1 }}>
                       <button
                         disabled={disabled}
                         onClick={() => !disabled && togglePick(market.id, opt.id)}
@@ -1270,19 +1267,13 @@ export default function App() {
                           ...(wouldConflict && !selected ? GS.betCellConflict : {}),
                         }}
                       >
-                        {colType !== "ml" && (
-                          <div style={GS.betCellLine}>{opt.label}</div>
-                        )}
-                        <div style={{ ...GS.betCellOdds, ...(selected ? { color: "#22c55e" } : {}) }}>
-                          {fmt(opt.odds)}
-                        </div>
-                        {colTotal > 0 && (
-                          <div style={GS.betCellAction}>${optTotal.toFixed(0)} ({Math.round(pct*100)}%)</div>
-                        )}
+                        {colType !== "ml" && <div style={GS.betCellLine}>{opt.label}</div>}
+                        <div style={{ ...GS.betCellOdds, ...(selected ? { color: "#22c55e" } : {}) }}>{fmt(opt.odds)}</div>
+                        {colTotal > 0 && <div style={GS.betCellAction}>${optTotal.toFixed(0)} ({Math.round(pct*100)}%)</div>}
                       </button>
                     </div>
                   );
-                }
+                };
 
                 return (
                   <div key={ml.id} style={GS.gameCard}>
@@ -1324,15 +1315,15 @@ export default function App() {
                         </div>
                         {/* Row A */}
                         <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
-                          {hasSpread && <BetCell opt={sp.options[0]} market={sp} colType="spread"/>}
-                          {hasOU && <BetCell opt={ou.options[0]} market={ou} colType="ou"/>}
-                          <BetCell opt={ml.options[0]} market={ml} colType="ml"/>
+                          {hasSpread && renderCell(sp.options[0], sp, "spread")}
+                          {hasOU && renderCell(ou.options[0], ou, "ou")}
+                          {renderCell(ml.options[0], ml, "ml")}
                         </div>
                         {/* Row B */}
                         <div style={{ display: "flex", gap: 4 }}>
-                          {hasSpread && <BetCell opt={sp.options[1]} market={sp} colType="spread"/>}
-                          {hasOU && <BetCell opt={ou.options[1]} market={ou} colType="ou"/>}
-                          <BetCell opt={ml.options[1]} market={ml} colType="ml"/>
+                          {hasSpread && renderCell(sp.options[1], sp, "spread")}
+                          {hasOU && renderCell(ou.options[1], ou, "ou")}
+                          {renderCell(ml.options[1], ml, "ml")}
                         </div>
                       </div>
                     </div>
