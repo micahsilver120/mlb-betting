@@ -1059,7 +1059,7 @@ export default function App() {
         {(activeTab === "games" || activeTab === "futures") && (
           <>
             {displayMarkets.length === 0 && <div style={S.empty}><p style={S.emptyText}>No markets yet.</p></div>}
-            {displayMarkets.map(market => {
+            {activeTab === "futures" && displayMarkets.map(market => {
               const meta = leagueMeta(market.subtitle);
               const marketBetTotal = market.options.reduce((sum, o) => sum + (optionTotals[o.id] || 0), 0);
               return (
@@ -1087,10 +1087,7 @@ export default function App() {
                       return (
                         <div key={opt.id}>
                           <button disabled={disabled} style={{ ...S.optionBtn, ...(selected ? S.optionBtnSelected : {}), ...(disabled ? S.optionBtnDisabled : {}), ...(isElim ? { background: "#fff1f2", borderColor: "#fecaca" } : {}) }} onClick={() => !disabled && togglePick(market.id, opt.id)}>
-                            <span style={S.optionLabel}>
-                              {opt.label}
-                              {isElim && <span style={{ fontSize: 11.0, color: "#ef4444", marginLeft: 8, fontWeight: 600 }}>OUT</span>}
-                            </span>
+                            <span style={S.optionLabel}>{opt.label}{isElim && <span style={{ fontSize: 11.0, color: "#ef4444", marginLeft: 8, fontWeight: 600 }}>OUT</span>}</span>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
                               <span style={{ ...S.optionOdds, ...(selected ? S.optionOddsSelected : {}), ...(isElim ? { color: "#ef4444", textDecoration: "line-through" } : {}) }}>{fmt(opt.odds)}</span>
                               {marketBetTotal > 0 && <span style={S.optionMoney}>${optTotal.toFixed(0)} 
@@ -1115,6 +1112,178 @@ export default function App() {
                 </div>
               );
             })}
+            {activeTab === "games" && (()=>{
+              // Group game markets: moneyline is base, spread/OU are companions
+              const grouped = [];
+              const used = new Set();
+              for (const m of displayMarkets) {
+                if (used.has(m.id)) continue;
+                const baseTitle = m.title.replace(/ — Spread$/, '').replace(/ — O\/U [\d.]+$/, '');
+                const isBase = m.title === baseTitle;
+                if (!isBase) continue; // skip companions — they get picked up by their base
+                const spread = displayMarkets.find(x => x.title === `${baseTitle} — Spread`);
+                const ou = displayMarkets.find(x => x.title.startsWith(`${baseTitle} — O/U`));
+                [m.id, spread?.id, ou?.id].filter(Boolean).forEach(id => used.add(id));
+                grouped.push({ moneyline: m, spread: spread || null, ou: ou || null });
+              }
+              // Any markets that weren't grouped (don't follow naming convention) go as standalone
+              for (const m of displayMarkets) {
+                if (!used.has(m.id)) { grouped.push({ moneyline: m, spread: null, ou: null }); used.add(m.id); }
+              }
+              const meta0 = leagueMeta(grouped[0]?.moneyline?.subtitle || "");
+              return grouped.map(({ moneyline: ml, spread: sp, ou }) => {
+                const meta = leagueMeta(ml.subtitle);
+                const hasColumns = sp || ou;
+                const allMarketsList = [ml, sp, ou].filter(Boolean);
+                const anyPaused = allMarketsList.some(m => m.status === "paused");
+                const allSettled = allMarketsList.every(m => m.status === "settled");
+                const totalAction = allMarketsList.reduce((s,m) => s + m.options.reduce((ss,o) => ss+(optionTotals[o.id]||0),0), 0);
+                // Teams: options[0] = team A, options[1] = team B for all market types
+                const teamA = ml.options[0], teamB = ml.options[1];
+                if (!hasColumns) {
+                  // No spread/OU — render standard card
+                  const marketBetTotal = ml.options.reduce((sum,o)=>sum+(optionTotals[o.id]||0),0);
+                  return (
+                    <div key={ml.id} style={S.marketCard}>
+                      <div style={S.marketTop}>
+                        <span style={{ ...S.leagueTag, color: meta.color, background: meta.bg }}>{meta.tag}</span>
+                        <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                          {ml.maxBet && <span style={S.maxBetTag}>Max ${ml.maxBet}</span>}
+                          {marketBetTotal > 0 && <span style={S.actionTag}>${marketBetTotal.toFixed(0)} action</span>}
+                          {ml.status === "paused" && <span style={S.pausedTag}> PAUSED</span>}
+                          {ml.status === "settled" && <span style={S.settledTag}>SETTLED</span>}
+                        </div>
+                      </div>
+                      <h3 style={S.marketTitle}>{ml.title}</h3>
+                      <p style={S.marketSub}>{ml.subtitle}</p>
+                      {ml.status === "paused" && <div style={S.pausedNotice}>Betting is paused — your existing bets are safe.</div>}
+                      {ml.status === "settled" && <div style={S.winnerAnnounce}> {ml.options.find(o=>o.id===ml.winner)?.label}</div>}
+                      <div style={S.optionGrid}>
+                        {ml.options.map(opt=>{
+                          const selected=!!betSlip[opt.id],isElim=(ml.eliminated||[]).includes(opt.id);
+                          const disabled=ml.status==="settled"||ml.status==="paused"||isElim;
+                          const optTotal=optionTotals[opt.id]||0,pct=marketBetTotal>0?optTotal/marketBetTotal:0;
+                          return(<div key={opt.id}>
+                            <button disabled={disabled} style={{...S.optionBtn,...(selected?S.optionBtnSelected:{}),...(disabled?S.optionBtnDisabled:{}),...(isElim?{background:"#fff1f2",borderColor:"#fecaca"}:{})}} onClick={()=>!disabled&&togglePick(ml.id,opt.id)}>
+                              <span style={S.optionLabel}>{opt.label}{isElim&&<span style={{fontSize:11,color:"#ef4444",marginLeft:8,fontWeight:600}}>OUT</span>}</span>
+                              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+                                <span style={{...S.optionOdds,...(selected?S.optionOddsSelected:{}),...(isElim?{color:"#ef4444",textDecoration:"line-through"}:{})}}>{fmt(opt.odds)}</span>
+                                {marketBetTotal>0&&<span style={S.optionMoney}>${optTotal.toFixed(0)} 
+                              </div>
+                            </button>
+                            {marketBetTotal>0&&<div style={S.moneyBar}><div style={{...S.moneyBarFill,width:`${pct*100}%`,background:selected?"#4ade80":meta.color}}/></div>}
+                          </div>);
+                        })}
+                      </div>
+                      {slipMode==="straight"&&ml.options.map(opt=>{
+                        if(!betSlip[opt.id])return null;
+                        const slip=betSlip[opt.id],stake=parseFloat(slip.stake)||0,win=stake>0?toWin(stake,opt.odds):0;
+                        return(<div key={opt.id} style={S.stakeRow}>
+                          <span style={S.stakeTeam}>{opt.label}</span>
+                          <div style={S.stakeInputWrap}><span style={S.stakeDollar}>$</span><input style={S.stakeInput} type="number" placeholder="0" value={slip.stake} onChange={e=>setStake(opt.id,e.target.value)} min="1"/></div>
+                          {win>0&&<span style={S.toWin}>to win ${win.toFixed(2)}</span>}
+                        </div>);
+                      })}
+                    </div>
+                  );
+                }
+                // 
+── Sportsbook-style grouped card ──────────────────────────
+                const columns = [
+                  sp ? { market: sp, label: "SPREAD", optA: sp.options[0], optB: sp.options[1] } : null,
+                  ou ? { market: ou, label: "O/U", optA: ou.options[0], optB: ou.options[1] } : null,
+                  { market: ml, label: "MONEYLINE", optA: ml.options[0], optB: ml.options[1] },
+                ].filter(Boolean);
+                // All selected options across all markets in this group for stake inputs
+                const groupSelectedOpts = columns.flatMap(col =>
+                  [col.optA, col.optB].filter(opt => betSlip[opt?.id])
+                    .map(opt => ({ opt, market: col.market, colLabel: col.label }))
+                );
+                return (
+                  <div key={ml.id} style={S.marketCard}>
+                    {/* Card header */}
+                    <div style={S.marketTop}>
+                      <span style={{ ...S.leagueTag, color: meta.color, background: meta.bg }}>{meta.tag}</span>
+                      <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                        {totalAction > 0 && <span style={S.actionTag}>${totalAction.toFixed(0)} action</span>}
+                        {anyPaused && <span style={S.pausedTag}> PAUSED</span>}
+                        {allSettled && <span style={S.settledTag}>SETTLED</span>}
+                      </div>
+                    </div>
+                    <h3 style={S.marketTitle}>{ml.title}</h3>
+                    <p style={S.marketSub}>{ml.subtitle}</p>
+                    {anyPaused && <div style={S.pausedNotice}>Betting is paused — your existing bets are safe.</div>}
+                    {/* Column headers */}
+                    <div style={{ display:"grid", gridTemplateColumns:`repeat(${columns.length},1fr)`, gap:8, marginBottom:4 }}>
+                      {columns.map(col => (
+                        <div key={col.label} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:"#94a3b8", letterSpacing:1, padding:"0 4px" }}>
+                          {col.label}
+                          {col.market.status==="paused" && <span style={{color:"#d97706",marginLeft:4}}>
+                          {col.market.status==="settled" && <span style={{color:"#16a34a",marginLeft:4}}>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Team rows */}
+                    {[0, 1].map(rowIdx => {
+                      const teamLabel = rowIdx === 0 ? teamA?.label : teamB?.label;
+                      return (
+                        <div key={rowIdx} style={{ display:"grid", gridTemplateColumns:`repeat(${columns.length},1fr)`, gap:8, marginBottom:6 }}>
+                          {columns.map(col => {
+                            const opt = rowIdx === 0 ? col.optA : col.optB;
+                            if (!opt) return <div key={col.label} />;
+                            const selected = !!betSlip[opt.id];
+                            const disabled = col.market.status==="settled" || col.market.status==="paused";
+                            const optTotal = optionTotals[opt.id] || 0;
+                            const colTotal = (optionTotals[col.optA?.id]||0) + (optionTotals[col.optB?.id]||0);
+                            const pct = colTotal > 0 ? optTotal/colTotal : 0;
+                            const isML = col.label === "MONEYLINE";
+                            const isSettledWinner = col.market.status==="settled" && col.market.winner===opt.id;
+                            return (
+                              <div key={col.label}>
+                                <button disabled={disabled} onClick={() => !disabled && togglePick(col.market.id, opt.id)}
+                                  style={{ width:"100%", background:selected?"#f0fdf4":isSettledWinner?"#f0fdf4":"#f8fafc",
+                                    border:`1.5px solid ${selected?"#16a34a":isSettledWinner?"#16a34a":"#e2e8f0"}`,
+                                    borderRadius:10, padding:"10px 8px", cursor:disabled?"not-allowed":"pointer",
+                                    opacity:disabled&&!isSettledWinner?0.45:1, textAlign:"center", transition:"all 0.12s" }}>
+                                  {/* Spread/OU: show line on top, odds below. ML: show just odds, big */}
+                                  {isML ? (
+                                    <div style={{ fontSize:18, fontWeight:700, color:selected?"#16a34a":"#6366f1" }}>{fmt(opt.odds)}</div>
+                                  ) : (
+                                    <>
+                                      <div style={{ fontSize:13, fontWeight:700, color:"#1e293b", marginBottom:2 }}>{opt.label}</div>
+                                      <div style={{ fontSize:14, fontWeight:700, color:selected?"#16a34a":"#6366f1" }}>{fmt(opt.odds)}</div>
+                                    </>
+                                  )}
+                                  {colTotal > 0 && <div style={{ fontSize:9, color:"#94a3b8", marginTop:2 }}>${optTotal.toFixed(0)} 
+                                </button>
+                                {colTotal > 0 && <div style={S.moneyBar}><div style={{...S.moneyBarFill,width:`${pct*100}%`,background:selected?"#16a34a":meta.color}}/></div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                    {/* Team name labels on left side (below buttons) */}
+                    <div style={{ display:"grid", gridTemplateColumns:`repeat(${columns.length},1fr)`, gap:8, marginTop:-2, marginBottom:8 }}>
+                      {columns.map((col, ci) => (
+                        <div key={col.label} style={{ fontSize:10, color:"#94a3b8", textAlign:"center" }}>
+                          {ci===0 ? <><span style={{color:"#1e293b",fontWeight:600}}>{teamA?.label}</span> vs <span style={{color:"#1e293b",fontWeight:600}}>{teamB?.label}</span></> : ""}
+                        </div>
+                      ))}
+                    </div>
+                    {/* Stake inputs for selected options */}
+                    {slipMode==="straight" && groupSelectedOpts.map(({opt, market, colLabel}) => {
+                      const slip=betSlip[opt.id],stake=parseFloat(slip?.stake)||0,win=stake>0?toWin(stake,opt.odds):0;
+                      return(<div key={opt.id} style={S.stakeRow}>
+                        <span style={S.stakeTeam}>{colLabel}: {opt.label} {fmt(opt.odds)}</span>
+                        <div style={S.stakeInputWrap}><span style={S.stakeDollar}>$</span><input style={S.stakeInput} type="number" placeholder="0" value={slip?.stake||""} onChange={e=>setStake(opt.id,e.target.value)} min="1"/></div>
+                        {win>0&&<span style={S.toWin}>to win ${win.toFixed(2)}</span>}
+                      </div>);
+                    })}
+                  </div>
+                );
+              });
+            })()}
             {slipEntries.length > 0 && (
               <div style={S.slipFooter}>
                 {parlayEligible && (
