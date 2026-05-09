@@ -6,7 +6,7 @@ import { getDatabase, ref, set, get, onValue } from "firebase/database";
 if (typeof document !== "undefined" && !document.getElementById("mln-fonts")) {
   const link = document.createElement("link");
   const fontBase = "https://fonts.googleapis.com/css2";
-  const fontQuery = "?family=Figtree:wght@400;500;600;700&display=swap";
+  const fontQuery = "?family=Barlow+Condensed:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap";
   link.id = "mln-fonts";
   link.rel = "stylesheet";
   link.href = fontBase + fontQuery;
@@ -121,9 +121,9 @@ async function storageSet(key, value) {
 //  PIN Pad 
 
 function PinPad({ value, onChange, label, sublabel, error }) {
-  const keys = ["1","2","3","4","5","6","7","8","9","","0","<"];
+  const keys = ["1","2","3","4","5","6","7","8","9","","0","\u232B"];
   function press(k) {
-    if (k === "<") { onChange(value.slice(0, -1)); return; }
+    if (k === "\u232B") { onChange(value.slice(0, -1)); return; }
     if (k === "" || value.length >= 4) return;
     onChange(value + k);
   }
@@ -141,7 +141,7 @@ function PinPad({ value, onChange, label, sublabel, error }) {
       {error && <p style={{ margin: "-10px 0 -6px", fontSize: 12.0, color: "#ef4444", textAlign: "center" }}>{error}</p>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: 200 }}>
         {keys.map((k, i) => (
-          <button key={i} onClick={() => press(k)} style={{ height: 54, background: k === "" ? "transparent" : "#ffffff", border: k === "" ? "none" : "1px solid #e2e8f0", borderRadius: 12, color: k === "<" ? "#94a3b8" : "#1e293b", fontSize: k === "<" ? 18 : 20, fontWeight: 600, cursor: k === "" ? "default" : "pointer", fontFamily: "'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", pointerEvents: k === "" ? "none" : "auto" }}>
+          <button key={i} onClick={() => press(k)} style={{ height: 54, background: k === "" ? "transparent" : "#ffffff", border: k === "" ? "none" : "1px solid #e2e8f0", borderRadius: 12, color: k === "\u232B" ? "#94a3b8" : "#1e293b", fontSize: k === "\u232B" ? 18 : 20, fontWeight: 600, cursor: k === "" ? "default" : "pointer", fontFamily: "'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", pointerEvents: k === "" ? "none" : "auto" }}>
             {k}
           </button>
         ))}
@@ -311,7 +311,16 @@ export default function App() {
   });
   const multiMarket = new Set(slipEntries.map(([, v]) => v.marketId)).size > 1;
   const slipHasFuture = slipLegs.some(l => allMarkets.find(m => m.id === l.marketId)?.type === "future");
-  const parlayEligible = multiMarket && !slipHasFuture;
+  // Detect if parlay has moneyline+spread from the same base game (not allowed)
+  const getBaseTitle = (title) => title.replace(/ - Spread$/, '').replace(/ - O\/U [\d.]+$/, '');
+  const slipBaseTitles = slipLegs.map(l => {
+    const m = allMarkets.find(x => x.id === l.marketId);
+    return m ? getBaseTitle(m.title) : null;
+  });
+  const hasSameGameConflict = slipBaseTitles.some((base, i) =>
+    slipBaseTitles.some((other, j) => i !== j && base && other && base === other)
+  );
+  const parlayEligible = multiMarket && !slipHasFuture && !hasSameGameConflict;
   const parlayOdds = slipLegs.length > 1 ? combinedAmericanOdds(slipLegs) : null;
   const parlayPayout = parlayStake > 0 && parlayOdds != null ? calcPayout(parseFloat(parlayStake), parlayOdds) : 0;
   const straightTotal = slipLegs.reduce((acc, l) => acc + (parseFloat(l.stake) || 0), 0);
@@ -522,7 +531,7 @@ export default function App() {
     const reopen = m => m.id === marketId ? { ...m, status: "open", winner: null } : m;
     const newMarkets = { games: markets.games.map(reopen), futures: markets.futures.map(reopen) };
     await saveUsers(newUsers); await saveMarkets(newMarkets); await saveBets(newBets);
-    notify("Market reopened - payouts reversed");
+    notify(`Market reopened - payouts reversed ${I.undo}`);
   }
 
   async function eliminateOption(marketId, losingOptionId) {
@@ -574,7 +583,7 @@ export default function App() {
     const newStatus = market.status === "paused" ? "open" : "paused";
     const toggle = m => m.id === marketId ? { ...m, status: newStatus } : m;
     await saveMarkets({ games: markets.games.map(toggle), futures: markets.futures.map(toggle) });
-    notify(newStatus === "paused" ? "|| Market paused" : "> Market reopened");
+    notify(newStatus === "paused" ? `${I.pause} Market paused` : "> Market reopened");
   }
 
   async function pauseAllMarkets() {
@@ -775,7 +784,7 @@ export default function App() {
       ) : (
         <>
           <div style={S.adminTabRow}>
-            {[["settle","= Settle"],["players","PP Players"],["add","+ Add"],["edit","edit Edit"],["bets","list Bets"],["danger","! Danger"]].map(([key, label]) => (
+            {[["settle",`${I.scales} Settle`],["players",`${I.people} Players`],["add",`${I.plus} Add`],["edit",`${I.pencil} Edit`],["bets",`${I.clipboard} Bets`],["danger",`${I.warn} Danger`]].map(([key, label]) => (
               <button key={key} style={{ ...S.adminTab, ...(adminTab === key ? S.adminTabActive : {}) }} onClick={() => { setAdminTab(key); setEditingMarket(null); }}>{label}</button>
             ))}
           </div>
@@ -799,8 +808,8 @@ export default function App() {
 
                 {/* Pause all */}
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button style={{ ...S.settleBtn, flex: 1, textAlign: "center", background: "#fffbeb", borderColor: "#fde68a", color: "#d97706" }} onClick={pauseAllMarkets}>Pause All Markets</button>
-                  <button style={{ ...S.settleBtn, flex: 1, textAlign: "center" }} onClick={unpauseAllMarkets}>Open All Markets</button>
+                  <button style={{ ...S.settleBtn, flex: 1, textAlign: "center", background: "#fffbeb", borderColor: "#fde68a", color: "#d97706" }} onClick={pauseAllMarkets}>{I.pause} Pause All Markets</button>
+                  <button style={{ ...S.settleBtn, flex: 1, textAlign: "center" }} onClick={unpauseAllMarkets}>{I.play} Open All Markets</button>
                 </div>
 
                 {/* Settle markets */}
@@ -815,7 +824,7 @@ export default function App() {
                           <span>{market.title}</span>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             {market.status === "settled" && <span style={S.settledBadge}>SETTLED</span>}
-                            {market.status === "paused" && <span style={S.pausedBadge}>|| PAUSED</span>}
+                            {market.status === "paused" && <span style={S.pausedBadge}>{I.pause} PAUSED</span>}
                           </div>
                         </div>
 
@@ -851,7 +860,7 @@ export default function App() {
                         {(market.status === "open" || market.status === "paused") && (
                           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
                             <button style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1c1200", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#f59e0b", fontSize: 12.0 }} onClick={() => togglePauseMarket(market.id)}>
-                              {market.status === "paused" ? "> Open Betting" : "|| Pause Betting"}
+                              {market.status === "paused" ? "> Open Betting" : `${I.pause} Pause Betting`}
                             </button>
                           </div>
                         )}
@@ -885,7 +894,7 @@ export default function App() {
                         ) : (
                           <>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                              <p style={S.winnerText}>Trophy {market.options.find(o => o.id === market.winner)?.label}</p>
+                              <p style={S.winnerText}>{I.trophy} {market.options.find(o => o.id === market.winner)?.label}</p>
                               <button style={{ ...S.settleBtn, background: "#faf5ff", borderColor: "#7f1d7f", color: "#9333ea", fontSize: 12.0, padding: "6px 12px" }}
                                 onClick={() => { if (window.confirm(`Unsettle "${market.title}"? This reverses all payouts.`)) unsettleMarket(market.id); }}>
                                 Unsettle
@@ -926,7 +935,7 @@ export default function App() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                   <p style={{ ...S.sectionHead, margin: 0 }}>PLAYERS ({leaderboard.length})</p>
                   <button onClick={toggleLeaderboard} style={{ ...S.adjustBtn, fontSize: 11.0, padding: "5px 12px", color: leaderboardVisible ? "#4ade80" : "#f59e0b", borderColor: leaderboardVisible ? "#166534" : "#92400e", background: leaderboardVisible ? "#0a1a0e" : "#1c1200" }}>
-                    {leaderboardVisible ? "O Standings ON" : "X Standings OFF"}
+                    {leaderboardVisible ? `${I.eye} Standings ON` : `${I.noSee} Standings OFF`}
                   </button>
                 </div>
                 {leaderboard.length === 0 && <p style={S.emptyText}>No players yet</p>}
@@ -1051,7 +1060,7 @@ export default function App() {
                           {(market.status === "open" || market.status === "paused") && <button style={S.settleBtn} onClick={() => startEdit(market)}>Edit</button>}
                           {(market.status === "open" || market.status === "paused") && (
                             <button style={{ ...S.settleBtn, background: market.status === "paused" ? "#0a1a0e" : "#1a1408", borderColor: market.status === "paused" ? "#166534" : "#92400e", color: market.status === "paused" ? "#4ade80" : "#d97706" }} onClick={() => togglePauseMarket(market.id)}>
-                              {market.status === "paused" ? "> Open" : "|| Pause"}
+                              {market.status === "paused" ? `${I.play} Open` : `${I.pause} Pause`}
                             </button>
                           )}
                           {market.status !== "settled" && <button style={{ ...S.settleBtn, background: "#fff1f2", borderColor: "#fecaca", color: "#ef4444" }} onClick={() => voidMarket(market.id)}>Void</button>}
@@ -1089,7 +1098,7 @@ export default function App() {
                 {bets.length === 0 && <p style={S.emptyText}>No bets placed yet</p>}
                 {[...bets].reverse().map(b => (
                   <div key={b.id} style={S.betRow}>
-                    <div style={S.betRowTop}><span style={S.betRowUser}>{b.username}</span><span style={{ fontSize: 12.0, fontWeight: 700, color: b.status === "won" ? "#16a34a" : b.status === "lost" ? "#ef4444" : b.status === "voided" ? "#94a3b8" : "#d97706" }}>{b.status === "won" ? "v WON" : b.status === "lost" ? "x LOST" : b.status === "voided" ? "<- VOID" : "... PENDING"}</span></div>
+                    <div style={S.betRowTop}><span style={S.betRowUser}>{b.username}</span><span style={{ fontSize: 12.0, fontWeight: 700, color: b.status === "won" ? "#16a34a" : b.status === "lost" ? "#ef4444" : b.status === "voided" ? "#94a3b8" : "#d97706" }}>{b.status === "won" ? `${I.check} WON` : b.status === "lost" ? `${I.cross} LOST` : b.status === "voided" ? `${I.undo} VOID` : `${I.pending} PENDING`}</span></div>
                     {b.betType === "parlay" ? (<><div style={{ fontSize: 11.0, color: "#3b82f6", marginBottom: 4, letterSpacing: 1 }}>PARLAY - {fmt(b.combinedOdds)}</div>{b.legs.map((l, i) => (<div key={i} style={{ fontSize: 13.0, color: "#64748b", marginBottom: 2 }}>{l.optionLabel} <span style={{ color: "#6366f1" }}>{fmt(l.odds)}</span><span style={{ marginLeft: 6, fontSize: 11.0, color: l.status === "won" ? "#16a34a" : l.status === "lost" ? "#ef4444" : "#94a3b8" }}>{l.status === "won" ? "v" : l.status === "lost" ? "x" : "..."}</span></div>))}</>) : (<><div style={S.betRowMarket}>{b.marketTitle}</div><div style={S.betRowPick}>{b.optionLabel} <span style={{ color: "#6366f1" }}>{fmt(b.odds)}</span></div></>)}
                     <div style={S.betRowAmounts}><span>Stake <strong>${b.stake.toFixed(2)}</strong></span><span>Payout <strong>${b.payout.toFixed(2)}</strong></span><span style={{ marginLeft: "auto", color: "#94a3b8" }}>{fmtTime(b.placedAt)}</span></div>
                   </div>
@@ -1117,7 +1126,7 @@ export default function App() {
   return (
     <div style={S.wrap}>
       <div style={S.header}>
-        <div style={S.headerLeft}><span style={S.headerIcon}>O</span><span style={S.headerLogo}>MLN BETTING</span></div>
+        <div style={S.headerLeft}><span style={S.headerIcon}>{I.baseball}</span><span style={S.headerLogo}>MLN BETTING</span></div>
         <div style={S.headerRight}>
           <div style={S.balancePill}><span style={S.balanceDollar}>$</span><span style={S.balanceAmt}>{balance.toFixed(2)}</span></div>
           <button style={S.avatarBtn} title={username} onClick={() => { setBetSlip({}); setScreen("login"); }}>{username[0]?.toUpperCase()}</button>
@@ -1130,7 +1139,7 @@ export default function App() {
       )}
 
       <div style={S.tabs}>
-        {[["games","O Games"],["futures","* Futures"],["leaderboard","# Standings"],["mybets",`My Bets${userBets.length ? ` (${userBets.length})` : ""}`]]
+        {[["games",`${I.stadium} Games`],["futures",`${I.crystal} Futures`],["leaderboard",`${I.medal} Standings`],["mybets",`My Bets${userBets.length ? ` (${userBets.length})` : ""}`]]
           .filter(([key]) => key !== "leaderboard" || leaderboardVisible)
           .map(([key, label]) => (
             <button key={key} style={{ ...S.tab, ...(activeTab === key ? S.tabActive : {}) }} onClick={() => setActiveTab(key)}>{label}</button>
@@ -1151,14 +1160,14 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {market.maxBet && <span style={S.maxBetTag}>Max ${market.maxBet}</span>}
                       {marketBetTotal > 0 && <span style={S.actionTag}>${marketBetTotal.toFixed(0)} action</span>}
-                      {market.status === "paused" && <span style={S.pausedTag}>|| PAUSED</span>}
+                      {market.status === "paused" && <span style={S.pausedTag}>{I.pause} PAUSED</span>}
                       {market.status === "settled" && <span style={S.settledTag}>SETTLED</span>}
                     </div>
                   </div>
                   <h3 style={S.marketTitle}>{market.title}</h3>
                   <p style={S.marketSub}>{market.subtitle}</p>
                   {market.status === "paused" && <div style={S.pausedNotice}>Betting is paused - your existing bets are safe. Check back soon.</div>}
-                  {market.status === "settled" && <div style={S.winnerAnnounce}>Trophy {market.options.find(o => o.id === market.winner)?.label}</div>}
+                  {market.status === "settled" && <div style={S.winnerAnnounce}>{I.trophy} {market.options.find(o => o.id === market.winner)?.label}</div>}
                   <div style={S.optionGrid}>
                     {market.options.map(opt => {
                       const selected = !!betSlip[opt.id];
@@ -1196,179 +1205,168 @@ export default function App() {
             })}
 
             {activeTab === "games" && (()=>{
-              // Group game markets: moneyline is base, spread/OU are companions
               const grouped = [];
               const used = new Set();
               for (const m of displayMarkets) {
                 if (used.has(m.id)) continue;
                 const baseTitle = m.title.replace(/ - Spread$/, '').replace(/ - O\/U [\d.]+$/, '');
                 const isBase = m.title === baseTitle;
-                if (!isBase) continue; // skip companions - they get picked up by their base
+                if (!isBase) continue;
                 const spread = displayMarkets.find(x => x.title === `${baseTitle} - Spread`);
                 const ou = displayMarkets.find(x => x.title.startsWith(`${baseTitle} - O/U`));
                 [m.id, spread?.id, ou?.id].filter(Boolean).forEach(id => used.add(id));
                 grouped.push({ moneyline: m, spread: spread || null, ou: ou || null });
               }
-              // Any markets that weren't grouped (don't follow naming convention) go as standalone
               for (const m of displayMarkets) {
                 if (!used.has(m.id)) { grouped.push({ moneyline: m, spread: null, ou: null }); used.add(m.id); }
               }
+
               return grouped.map(({ moneyline: ml, spread: sp, ou }) => {
                 const meta = leagueMeta(ml.subtitle);
-                const hasColumns = sp || ou;
-                const allMarketsList = [ml, sp, ou].filter(Boolean);
-                const anyPaused = allMarketsList.some(m => m.status === "paused");
-                const allSettled = allMarketsList.every(m => m.status === "settled");
-                const totalAction = allMarketsList.reduce((s,m) => s + m.options.reduce((ss,o) => ss+(optionTotals[o.id]||0),0), 0);
-                // Teams: options[0] = team A, options[1] = team B for all market types
-                const teamA = ml.options[0], teamB = ml.options[1];
+                const allMkts = [ml, sp, ou].filter(Boolean);
+                const anyPaused = allMkts.some(m => m.status === "paused");
+                const allSettled = allMkts.every(m => m.status === "settled");
+                const totalAction = allMkts.reduce((s,m) => s + m.options.reduce((ss,o) => ss+(optionTotals[o.id]||0),0), 0);
+                const teamA = ml.options[0]?.label || "";
+                const teamB = ml.options[1]?.label || "";
+                const hasSpread = !!sp, hasOU = !!ou;
 
-                if (!hasColumns) {
-                  // No spread/OU  render standard card
-                  const marketBetTotal = ml.options.reduce((sum,o)=>sum+(optionTotals[o.id]||0),0);
+                // Which options from this group are selected
+                const groupSelected = allMkts.flatMap(m => m.options.filter(o => !!betSlip[o.id]).map(o => ({ o, m })));
+
+                // Conflict: has user picked from this group's markets in a way that would conflict?
+                const groupBaseTitle = getBaseTitle(ml.title);
+                const slipFromThisGroup = slipLegs.filter(l => {
+                  const mkt = allMarkets.find(x => x.id === l.marketId);
+                  return mkt && getBaseTitle(mkt.title) === groupBaseTitle;
+                });
+
+                // Render a bet button cell
+                function BetCell({ opt, market, colType }) {
+                  if (!opt) return <div style={GS.betCellEmpty}/>;
+                  const selected = !!betSlip[opt.id];
+                  const isElim = (market.eliminated||[]).includes(opt.id);
+                  const disabled = market.status === "settled" || market.status === "paused" || isElim;
+                  const optTotal = optionTotals[opt.id] || 0;
+                  const colTotal = market.options.reduce((s,o)=>s+(optionTotals[o.id]||0),0);
+                  const pct = colTotal > 0 ? optTotal/colTotal : 0;
+
+                  // Check if clicking this would create a same-game conflict in parlay mode
+                  const wouldConflict = slipMode === "parlay" && slipFromThisGroup.length > 0 &&
+                    !slipFromThisGroup.some(l => l.optionId === opt.id);
+
+                  const isSettledWin = market.status === "settled" && market.winner === opt.id;
+
                   return (
-                    <div key={ml.id} style={S.marketCard}>
-                      <div style={S.marketTop}>
-                        <span style={{ ...S.leagueTag, color: meta.color, background: meta.bg }}>{meta.tag}</span>
-                        <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                          {ml.maxBet && <span style={S.maxBetTag}>Max ${ml.maxBet}</span>}
-                          {marketBetTotal > 0 && <span style={S.actionTag}>${marketBetTotal.toFixed(0)} action</span>}
-                          {ml.status === "paused" && <span style={S.pausedTag}>|| PAUSED</span>}
-                          {ml.status === "settled" && <span style={S.settledTag}>SETTLED</span>}
+                    <div style={{ flex: 1 }}>
+                      <button
+                        disabled={disabled}
+                        onClick={() => !disabled && togglePick(market.id, opt.id)}
+                        style={{
+                          ...GS.betCell,
+                          ...(selected ? GS.betCellSelected : {}),
+                          ...(isSettledWin ? GS.betCellWin : {}),
+                          ...(disabled ? GS.betCellDisabled : {}),
+                          ...(wouldConflict && !selected ? GS.betCellConflict : {}),
+                        }}
+                      >
+                        {colType !== "ml" && (
+                          <div style={GS.betCellLine}>{opt.label}</div>
+                        )}
+                        <div style={{ ...GS.betCellOdds, ...(selected ? { color: "#22c55e" } : {}) }}>
+                          {fmt(opt.odds)}
                         </div>
-                      </div>
-                      <h3 style={S.marketTitle}>{ml.title}</h3>
-                      <p style={S.marketSub}>{ml.subtitle}</p>
-                      {ml.status === "paused" && <div style={S.pausedNotice}>Betting is paused - your existing bets are safe.</div>}
-                      {ml.status === "settled" && <div style={S.winnerAnnounce}>Trophy {ml.options.find(o=>o.id===ml.winner)?.label}</div>}
-                      <div style={S.optionGrid}>
-                        {ml.options.map(opt=>{
-                          const selected=!!betSlip[opt.id],isElim=(ml.eliminated||[]).includes(opt.id);
-                          const disabled=ml.status==="settled"||ml.status==="paused"||isElim;
-                          const optTotal=optionTotals[opt.id]||0,pct=marketBetTotal>0?optTotal/marketBetTotal:0;
-                          return(<div key={opt.id}>
-                            <button disabled={disabled} style={{...S.optionBtn,...(selected?S.optionBtnSelected:{}),...(disabled?S.optionBtnDisabled:{}),...(isElim?{background:"#fff1f2",borderColor:"#fecaca"}:{})}} onClick={()=>!disabled&&togglePick(ml.id,opt.id)}>
-                              <span style={S.optionLabel}>{opt.label}{isElim&&<span style={{fontSize:11,color:"#ef4444",marginLeft:8,fontWeight:600}}>OUT</span>}</span>
-                              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
-                                <span style={{...S.optionOdds,...(selected?S.optionOddsSelected:{}),...(isElim?{color:"#ef4444",textDecoration:"line-through"}:{})}}>{fmt(opt.odds)}</span>
-                                {marketBetTotal>0&&<span style={S.optionMoney}>${optTotal.toFixed(0)} - {Math.round(pct*100)}%</span>}
-                              </div>
-                            </button>
-                            {marketBetTotal>0&&<div style={S.moneyBar}><div style={{...S.moneyBarFill,width:`${pct*100}%`,background:selected?"#4ade80":meta.color}}/></div>}
-                          </div>);
-                        })}
-                      </div>
-                      {slipMode==="straight"&&ml.options.map(opt=>{
-                        if(!betSlip[opt.id])return null;
-                        const slip=betSlip[opt.id],stake=parseFloat(slip.stake)||0,win=stake>0?toWin(stake,opt.odds):0;
-                        return(<div key={opt.id} style={S.stakeRow}>
-                          <span style={S.stakeTeam}>{opt.label}</span>
-                          <div style={S.stakeInputWrap}><span style={S.stakeDollar}>$</span><input style={S.stakeInput} type="number" placeholder="0" value={slip.stake} onChange={e=>setStake(opt.id,e.target.value)} min="1"/></div>
-                          {win>0&&<span style={S.toWin}>to win ${win.toFixed(2)}</span>}
-                        </div>);
-                      })}
+                        {colTotal > 0 && (
+                          <div style={GS.betCellAction}>${optTotal.toFixed(0)} ({Math.round(pct*100)}%)</div>
+                        )}
+                      </button>
                     </div>
                   );
                 }
 
-                //  Sportsbook-style grouped card 
-                const columns = [
-                  sp ? { market: sp, label: "SPREAD", optA: sp.options[0], optB: sp.options[1] } : null,
-                  ou ? { market: ou, label: "O/U", optA: ou.options[0], optB: ou.options[1] } : null,
-                  { market: ml, label: "MONEYLINE", optA: ml.options[0], optB: ml.options[1] },
-                ].filter(Boolean);
-
-                // All selected options across all markets in this group for stake inputs
-                const groupSelectedOpts = columns.flatMap(col =>
-                  [col.optA, col.optB].filter(opt => betSlip[opt?.id])
-                    .map(opt => ({ opt, market: col.market, colLabel: col.label }))
-                );
-
                 return (
-                  <div key={ml.id} style={S.marketCard}>
-                    {/* Card header */}
-                    <div style={S.marketTop}>
-                      <span style={{ ...S.leagueTag, color: meta.color, background: meta.bg }}>{meta.tag}</span>
-                      <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                        {totalAction > 0 && <span style={S.actionTag}>${totalAction.toFixed(0)} action</span>}
-                        {anyPaused && <span style={S.pausedTag}>|| PAUSED</span>}
-                        {allSettled && <span style={S.settledTag}>SETTLED</span>}
+                  <div key={ml.id} style={GS.gameCard}>
+                    {/* Top bar: league tag + status */}
+                    <div style={GS.gameCardTop}>
+                      <span style={{ ...GS.leagueTag, color: meta.color }}>{meta.tag}</span>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {totalAction > 0 && <span style={GS.actionTag}>${totalAction.toFixed(0)} action</span>}
+                        {ml.maxBet && <span style={GS.maxTag}>Max ${ml.maxBet}</span>}
+                        {anyPaused && !allSettled && <span style={GS.pauseTag}>{I.pause} Paused</span>}
+                        {allSettled && <span style={GS.settledTag}>Settled</span>}
                       </div>
                     </div>
-                    <h3 style={S.marketTitle}>{ml.title}</h3>
-                    <p style={S.marketSub}>{ml.subtitle}</p>
-                    {anyPaused && <div style={S.pausedNotice}>Betting is paused - your existing bets are safe.</div>}
 
-                    {/* Column headers */}
-                    <div style={{ display:"grid", gridTemplateColumns:`repeat(${columns.length},1fr)`, gap:8, marginBottom:4 }}>
-                      {columns.map(col => (
-                        <div key={col.label} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:"#94a3b8", letterSpacing:1, padding:"0 4px" }}>
-                          {col.label}
-                          {col.market.status==="paused" && <span style={{color:"#d97706",marginLeft:4}}></span>}
-                          {col.market.status==="settled" && <span style={{color:"#16a34a",marginLeft:4}}>v</span>}
+                    {anyPaused && <div style={GS.pauseBar}>Betting is paused on this game. Your existing bets are safe.</div>}
+
+                    {/* Main grid: teams on left, bet buttons on right */}
+                    <div style={GS.gameGrid}>
+                      {/* Team names column */}
+                      <div style={GS.teamsCol}>
+                        <div style={GS.teamRow}>
+                          {ml.status === "settled" && ml.winner === ml.options[0]?.id && <span style={GS.winDot}/>}
+                          <span style={{ ...GS.teamName, ...(ml.status === "settled" && ml.winner === ml.options[0]?.id ? { color: "#f8fafc", fontWeight: 700 } : {}) }}>{teamA}</span>
                         </div>
-                      ))}
+                        <div style={GS.teamDivider}/>
+                        <div style={GS.teamRow}>
+                          {ml.status === "settled" && ml.winner === ml.options[1]?.id && <span style={GS.winDot}/>}
+                          <span style={{ ...GS.teamName, ...(ml.status === "settled" && ml.winner === ml.options[1]?.id ? { color: "#f8fafc", fontWeight: 700 } : {}) }}>{teamB}</span>
+                        </div>
+                      </div>
+
+                      {/* Bet columns */}
+                      <div style={GS.betCols}>
+                        {/* Column headers */}
+                        <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                          {hasSpread && <div style={GS.colHeader}>SPREAD</div>}
+                          {hasOU && <div style={GS.colHeader}>O/U</div>}
+                          <div style={GS.colHeader}>MONEYLINE</div>
+                        </div>
+                        {/* Row A */}
+                        <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                          {hasSpread && <BetCell opt={sp.options[0]} market={sp} colType="spread"/>}
+                          {hasOU && <BetCell opt={ou.options[0]} market={ou} colType="ou"/>}
+                          <BetCell opt={ml.options[0]} market={ml} colType="ml"/>
+                        </div>
+                        {/* Row B */}
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {hasSpread && <BetCell opt={sp.options[1]} market={sp} colType="spread"/>}
+                          {hasOU && <BetCell opt={ou.options[1]} market={ou} colType="ou"/>}
+                          <BetCell opt={ml.options[1]} market={ml} colType="ml"/>
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Team rows */}
-                    {[0, 1].map(rowIdx => {
-                      const teamLabel = rowIdx === 0 ? teamA?.label : teamB?.label;
+                    {/* Winner announcement */}
+                    {allSettled && <div style={GS.winnerBar}>{I.trophy} {ml.options.find(o=>o.id===ml.winner)?.label} wins</div>}
+
+                    {/* Stake inputs for selected picks */}
+                    {slipMode === "straight" && groupSelected.map(({ o, m }) => {
+                      const slip = betSlip[o.id]; const stake = parseFloat(slip?.stake)||0; const win = stake > 0 ? toWin(stake, o.odds) : 0;
+                      const colLabel = m.id === ml.id ? "ML" : m.id === sp?.id ? "Spread" : "O/U";
                       return (
-                        <div key={rowIdx} style={{ display:"grid", gridTemplateColumns:`repeat(${columns.length},1fr)`, gap:8, marginBottom:6 }}>
-                          {columns.map(col => {
-                            const opt = rowIdx === 0 ? col.optA : col.optB;
-                            if (!opt) return <div key={col.label} />;
-                            const selected = !!betSlip[opt.id];
-                            const disabled = col.market.status==="settled" || col.market.status==="paused";
-                            const optTotal = optionTotals[opt.id] || 0;
-                            const colTotal = (optionTotals[col.optA?.id]||0) + (optionTotals[col.optB?.id]||0);
-                            const pct = colTotal > 0 ? optTotal/colTotal : 0;
-                            const isML = col.label === "MONEYLINE";
-                            const isSettledWinner = col.market.status==="settled" && col.market.winner===opt.id;
-                            return (
-                              <div key={col.label}>
-                                <button disabled={disabled} onClick={() => !disabled && togglePick(col.market.id, opt.id)}
-                                  style={{ width:"100%", background:selected?"#f0fdf4":isSettledWinner?"#f0fdf4":"#f8fafc",
-                                    border:`1.5px solid ${selected?"#16a34a":isSettledWinner?"#16a34a":"#e2e8f0"}`,
-                                    borderRadius:10, padding:"10px 8px", cursor:disabled?"not-allowed":"pointer",
-                                    opacity:disabled&&!isSettledWinner?0.45:1, textAlign:"center", transition:"all 0.12s" }}>
-                                  {/* Spread/OU: show line on top, odds below. ML: show just odds, big */}
-                                  {isML ? (
-                                    <div style={{ fontSize:18, fontWeight:700, color:selected?"#16a34a":"#6366f1" }}>{fmt(opt.odds)}</div>
-                                  ) : (
-                                    <>
-                                      <div style={{ fontSize:13, fontWeight:700, color:"#1e293b", marginBottom:2 }}>{opt.label}</div>
-                                      <div style={{ fontSize:14, fontWeight:700, color:selected?"#16a34a":"#6366f1" }}>{fmt(opt.odds)}</div>
-                                    </>
-                                  )}
-                                  {colTotal > 0 && <div style={{ fontSize:9, color:"#94a3b8", marginTop:2 }}>${optTotal.toFixed(0)} - {Math.round(pct*100)}%</div>}
-                                </button>
-                                {colTotal > 0 && <div style={S.moneyBar}><div style={{...S.moneyBarFill,width:`${pct*100}%`,background:selected?"#16a34a":meta.color}}/></div>}
-                              </div>
-                            );
-                          })}
+                        <div key={o.id} style={GS.stakeRow}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 2 }}>{colLabel} - {teamA} vs {teamB}</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#f8fafc" }}>{o.label} <span style={{ color: "#22c55e" }}>{fmt(o.odds)}</span></div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={GS.stakeWrap}>
+                              <span style={GS.stakeSym}>$</span>
+                              <input style={GS.stakeInput} type="number" placeholder="0" value={slip?.stake||""} onChange={e=>setStake(o.id, e.target.value)} min="1"/>
+                            </div>
+                            {win > 0 && <span style={{ fontSize: 12, color: "#22c55e", whiteSpace: "nowrap" }}>win ${win.toFixed(2)}</span>}
+                          </div>
                         </div>
                       );
                     })}
 
-                    {/* Team name labels on left side (below buttons) */}
-                    <div style={{ display:"grid", gridTemplateColumns:`repeat(${columns.length},1fr)`, gap:8, marginTop:-2, marginBottom:8 }}>
-                      {columns.map((col, ci) => (
-                        <div key={col.label} style={{ fontSize:10, color:"#94a3b8", textAlign:"center" }}>
-                          {ci===0 ? <><span style={{color:"#1e293b",fontWeight:600}}>{teamA?.label}</span> vs <span style={{color:"#1e293b",fontWeight:600}}>{teamB?.label}</span></> : ""}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Stake inputs for selected options */}
-                    {slipMode==="straight" && groupSelectedOpts.map(({opt, market, colLabel}) => {
-                      const slip=betSlip[opt.id],stake=parseFloat(slip?.stake)||0,win=stake>0?toWin(stake,opt.odds):0;
-                      return(<div key={opt.id} style={S.stakeRow}>
-                        <span style={S.stakeTeam}>{colLabel}: {opt.label} {fmt(opt.odds)}</span>
-                        <div style={S.stakeInputWrap}><span style={S.stakeDollar}>$</span><input style={S.stakeInput} type="number" placeholder="0" value={slip?.stake||""} onChange={e=>setStake(opt.id,e.target.value)} min="1"/></div>
-                        {win>0&&<span style={S.toWin}>to win ${win.toFixed(2)}</span>}
-                      </div>);
-                    })}
+                    {/* Same-game conflict warning */}
+                    {slipMode === "parlay" && hasSameGameConflict && slipFromThisGroup.length > 1 && (
+                      <div style={{ fontSize: 11, color: "#f59e0b", padding: "6px 12px", background: "rgba(245,158,11,0.1)", borderRadius: 6, marginTop: 8 }}>
+                        Cannot parlay moneyline + spread from the same game
+                      </div>
+                    )}
                   </div>
                 );
               });
@@ -1464,9 +1462,9 @@ export default function App() {
               <div key={b.id} style={{ ...S.betCard, ...(b.status === "won" ? S.betCardWon : b.status === "lost" ? S.betCardLost : b.status === "voided" ? { opacity: 0.5 } : {}) }}>
                 <div style={S.betCardTop}>
                   <span style={S.betMarket}>{b.betType === "parlay" ? <span style={{ color: "#3b82f6" }}>PARLAY - {fmt(b.combinedOdds)}</span> : b.marketTitle}</span>
-                  <span style={{ fontSize: 12.0, fontWeight: 700, color: b.status === "won" ? "#16a34a" : b.status === "lost" ? "#ef4444" : b.status === "voided" ? "#94a3b8" : "#d97706" }}>{b.status === "won" ? "v WON" : b.status === "lost" ? "x LOST" : b.status === "voided" ? "<- VOID" : "... PENDING"}</span>
+                  <span style={{ fontSize: 12.0, fontWeight: 700, color: b.status === "won" ? "#16a34a" : b.status === "lost" ? "#ef4444" : b.status === "voided" ? "#94a3b8" : "#d97706" }}>{b.status === "won" ? `${I.check} WON` : b.status === "lost" ? `${I.cross} LOST` : b.status === "voided" ? `${I.undo} VOID` : `${I.pending} PENDING`}</span>
                 </div>
-                {b.betType === "parlay" ? b.legs.map((l, i) => <div key={i} style={{ fontSize: 13.0, color: "#64748b", marginBottom: 3, paddingLeft: 4 }}><span style={{ color: "#6366f1", marginRight: 6 }}>{fmt(l.odds)}</span>{l.optionLabel}<span style={{ marginLeft: 6, fontSize: 11.0, color: l.status === "won" ? "#16a34a" : l.status === "lost" ? "#ef4444" : "#94a3b8" }}>{l.status === "won" ? "v" : l.status === "lost" ? "x" : ""}</span></div>) : <div style={S.betPick}>{b.optionLabel} <span style={{ color: "#6366f1" }}>{fmt(b.odds)}</span></div>}
+                {b.betType === "parlay" ? b.legs.map((l, i) => <div key={i} style={{ fontSize: 13.0, color: "#64748b", marginBottom: 3, paddingLeft: 4 }}><span style={{ color: "#6366f1", marginRight: 6 }}>{fmt(l.odds)}</span>{l.optionLabel}<span style={{ marginLeft: 6, fontSize: 11.0, color: l.status === "won" ? "#16a34a" : l.status === "lost" ? "#ef4444" : "#94a3b8" }}>{l.status === "won" ? I.check : l.status === "lost" ? I.cross : ""}</span></div>) : <div style={S.betPick}>{b.optionLabel} <span style={{ color: "#6366f1" }}>{fmt(b.odds)}</span></div>}
                 <div style={S.betAmounts}><span>Stake <strong>${b.stake.toFixed(2)}</strong></span><span>Payout <strong>${b.payout.toFixed(2)}</strong></span></div>
                 <div style={{ fontSize: 11.0, color: "#64748b", marginTop: 6 }}>{fmtTime(b.placedAt)}</div>
               </div>
@@ -1486,143 +1484,180 @@ function Toast({ n }) {
 //  Styles 
 
 const FONT = "'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const GS = {
+  gameCard: { background: "#0f1923", border: "1px solid #1e2d3d", borderRadius: 12, padding: "14px 16px", marginBottom: 10, overflow: "hidden" },
+  gameCardTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  leagueTag: { fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" },
+  actionTag: { fontSize: 10, color: "#4a6280", background: "rgba(255,255,255,0.04)", borderRadius: 4, padding: "2px 7px" },
+  maxTag: { fontSize: 10, color: "#f59e0b", background: "rgba(245,158,11,0.12)", borderRadius: 4, padding: "2px 7px", fontWeight: 600 },
+  pauseTag: { fontSize: 10, color: "#f59e0b", background: "rgba(245,158,11,0.12)", borderRadius: 4, padding: "2px 7px", border: "1px solid rgba(245,158,11,0.2)" },
+  settledTag: { fontSize: 10, color: "#22c55e", background: "rgba(34,197,94,0.1)", borderRadius: 4, padding: "2px 7px", border: "1px solid rgba(34,197,94,0.2)" },
+  pauseBar: { fontSize: 12, color: "#92400e", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 6, padding: "7px 12px", marginBottom: 10 },
+  gameGrid: { display: "flex", gap: 12, alignItems: "stretch" },
+  teamsCol: { display: "flex", flexDirection: "column", justifyContent: "space-between", minWidth: 0, flex: 1 },
+  teamRow: { display: "flex", alignItems: "center", gap: 6, padding: "8px 0" },
+  teamDivider: { height: 1, background: "#1e2d3d" },
+  teamName: { fontSize: 14, fontWeight: 500, color: "#8fa3bb", lineHeight: 1.3 },
+  winDot: { width: 6, height: 6, borderRadius: "50%", background: "#22c55e", flexShrink: 0 },
+  betCols: { flexShrink: 0, minWidth: 0 },
+  colHeader: { flex: 1, fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: "#4a6280", textAlign: "center", padding: "0 2px", textTransform: "uppercase" },
+  betCell: { width: "100%", minWidth: 70, background: "#192433", border: "1.5px solid #1e2d3d", borderRadius: 8, padding: "8px 6px", cursor: "pointer", textAlign: "center", transition: "all 0.12s" },
+  betCellSelected: { background: "#0d2a1a", border: "1.5px solid #22c55e" },
+  betCellWin: { background: "#0d2a1a", border: "1.5px solid #22c55e", opacity: 0.7 },
+  betCellDisabled: { opacity: 0.35, cursor: "not-allowed" },
+  betCellConflict: { opacity: 0.4 },
+  betCellEmpty: { flex: 1 },
+  betCellLine: { fontSize: 12, fontWeight: 700, color: "#c8d8e8", marginBottom: 2, lineHeight: 1.2 },
+  betCellOdds: { fontSize: 15, fontWeight: 800, color: "#4a9eff", fontFamily: "'Barlow Condensed', sans-serif" },
+  betCellAction: { fontSize: 9, color: "#4a6280", marginTop: 2 },
+  winnerBar: { fontSize: 13, color: "#22c55e", fontWeight: 600, padding: "8px 0 2px", marginTop: 6 },
+  stakeRow: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0d1f2d", border: "1px solid #22c55e", borderRadius: 8, padding: "10px 14px", marginTop: 8, gap: 12 },
+  stakeWrap: { display: "flex", alignItems: "center", gap: 4, background: "#192433", borderRadius: 6, padding: "4px 10px" },
+  stakeSym: { color: "#22c55e", fontWeight: 700, fontSize: 14 },
+  stakeInput: { background: "transparent", border: "none", color: "#f8fafc", fontFamily: "inherit", fontSize: 15, width: 80, outline: "none", fontWeight: 700 },
+};
+
+// Main app styles
+const F = "'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif";
 const S = {
-  wrap: { minHeight: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: FONT, paddingBottom: 140 },
-  center: { minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center" },
-  loadDot: { width: 10, height: 10, borderRadius: "50%", background: "#6366f1" },
+  wrap: { minHeight: "100vh", background: "#07111a", color: "#e2e8f0", fontFamily: F, paddingBottom: 160 },
+  center: { minHeight: "100vh", background: "#07111a", display: "flex", alignItems: "center", justifyContent: "center" },
+  loadDot: { width: 10, height: 10, borderRadius: "50%", background: "#4a9eff" },
 
   // Login
-  loginWrap: { minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, position: "relative" },
-  loginBg: { position: "fixed", inset: 0, background: "radial-gradient(ellipse 70% 50% at 50% -10%, rgba(99,102,241,0.08) 0%, transparent 65%)", pointerEvents: "none" },
-  loginCard: { background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 20, padding: "40px 32px", maxWidth: 380, width: "100%", display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" },
+  loginWrap: { minHeight: "100vh", background: "#07111a", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 },
+  loginBg: { position: "fixed", inset: 0, background: "radial-gradient(ellipse 60% 40% at 50% 0%, rgba(74,158,255,0.06) 0%, transparent 70%)", pointerEvents: "none" },
+  loginCard: { background: "#0f1923", border: "1px solid #1e2d3d", borderRadius: 20, padding: "40px 32px", maxWidth: 380, width: "100%", display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.5)" },
   loginLogoRow: { display: "flex", alignItems: "center", gap: 14, marginBottom: 4 },
-  loginLogoIcon: { fontSize: 37 },
-  loginLogoTitle: { fontSize: 23, fontWeight: 700, letterSpacing: 1, color: "#1e293b", lineHeight: 1.2 },
-  loginLogoSub: { fontSize: 11, color: "#94a3b8", marginTop: 2 },
-  loginDivider: { height: 1, background: "#f1f5f9" },
-  loginLabel: { fontSize: 11, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase" },
-  input: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "13px 16px", color: "#1e293b", fontFamily: FONT, fontSize: 15, outline: "none", width: "100%", boxSizing: "border-box", transition: "border-color 0.15s" },
-  btnPrimary: { background: "#6366f1", color: "#ffffff", border: "none", borderRadius: 10, padding: "14px 24px", fontFamily: FONT, fontWeight: 600, fontSize: 15, cursor: "pointer", letterSpacing: 0.2 },
-  btnGhost: { background: "transparent", color: "#94a3b8", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 24px", fontFamily: FONT, fontSize: 13, cursor: "pointer" },
-  btnDanger: { background: "#fff1f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 20px", fontFamily: FONT, fontSize: 14, cursor: "pointer", width: "100%", fontWeight: 600 },
-  btnCreate: { flex: 1, background: "#6366f1", color: "#ffffff", border: "none", borderRadius: 8, padding: "10px 8px", fontFamily: FONT, fontWeight: 600, fontSize: 13, cursor: "pointer" },
-  btnRetry: { background: "transparent", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px", fontFamily: FONT, fontSize: 13, cursor: "pointer" },
+  loginLogoIcon: { fontSize: 38 },
+  loginLogoTitle: { fontSize: 22, fontWeight: 800, letterSpacing: 2, color: "#f8fafc", lineHeight: 1.1, fontFamily: "'Barlow Condensed', sans-serif" },
+  loginLogoSub: { fontSize: 11, color: "#4a6280", marginTop: 3, letterSpacing: 0.5 },
+  loginDivider: { height: 1, background: "#1e2d3d" },
+  loginLabel: { fontSize: 10, color: "#4a6280", letterSpacing: 2, textTransform: "uppercase" },
+  input: { background: "#192433", border: "1px solid #1e2d3d", borderRadius: 10, padding: "13px 16px", color: "#f8fafc", fontFamily: F, fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" },
+  btnPrimary: { background: "#4a9eff", color: "#07111a", border: "none", borderRadius: 10, padding: "14px 24px", fontFamily: F, fontWeight: 700, fontSize: 14, cursor: "pointer" },
+  btnGhost: { background: "transparent", color: "#4a6280", border: "1px solid #1e2d3d", borderRadius: 10, padding: "12px 24px", fontFamily: F, fontSize: 12, cursor: "pointer" },
+  btnDanger: { background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: "12px 20px", fontFamily: F, fontSize: 13, cursor: "pointer", width: "100%" },
+  btnCreate: { flex: 1, background: "#4a9eff", color: "#07111a", border: "none", borderRadius: 8, padding: "10px 8px", fontFamily: F, fontWeight: 700, fontSize: 12, cursor: "pointer" },
+  btnRetry: { background: "transparent", color: "#4a6280", border: "1px solid #1e2d3d", borderRadius: 8, padding: "10px 12px", fontFamily: F, fontSize: 12, cursor: "pointer" },
 
   // Header
-  header: { background: "#ffffff", borderBottom: "1px solid #f1f5f9", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" },
+  header: { background: "#0b161f", borderBottom: "1px solid #1e2d3d", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 },
   headerLeft: { display: "flex", alignItems: "center", gap: 10 },
-  headerIcon: { fontSize: 19 },
-  headerLogo: { fontWeight: 700, fontSize: 15, letterSpacing: 0.5, color: "#1e293b" },
+  headerIcon: { fontSize: 20 },
+  headerLogo: { fontWeight: 800, fontSize: 16, letterSpacing: 3, color: "#f8fafc", fontFamily: "'Barlow Condensed', sans-serif" },
   headerRight: { display: "flex", alignItems: "center", gap: 10 },
-  balancePill: { background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 20, padding: "5px 14px", display: "flex", alignItems: "baseline", gap: 2 },
-  balanceDollar: { fontSize: 12, color: "#16a34a" },
-  balanceAmt: { fontSize: 15, fontWeight: 700, color: "#16a34a" },
-  avatarBtn: { background: "#6366f1", color: "#ffffff", border: "none", borderRadius: "50%", width: 33, height: 33, fontWeight: 700, cursor: "pointer", fontFamily: FONT, fontSize: 14 },
-  headerBanner: { background: "#fffbeb", borderBottom: "1px solid #fde68a", padding: "10px 20px", fontSize: 14, color: "#92400e", textAlign: "center", lineHeight: 1.4, fontWeight: 500 },
+  balancePill: { background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 20, padding: "5px 14px", display: "flex", alignItems: "baseline", gap: 3 },
+  balanceDollar: { fontSize: 12, color: "#22c55e" },
+  balanceAmt: { fontSize: 15, fontWeight: 700, color: "#22c55e" },
+  avatarBtn: { background: "#4a9eff", color: "#07111a", border: "none", borderRadius: "50%", width: 32, height: 32, fontWeight: 800, cursor: "pointer", fontFamily: F, fontSize: 13 },
+  headerBanner: { background: "linear-gradient(90deg, rgba(245,158,11,0.15), rgba(245,158,11,0.08), rgba(245,158,11,0.15))", borderBottom: "1px solid rgba(245,158,11,0.2)", padding: "10px 18px", fontSize: 13, color: "#fbbf24", textAlign: "center", fontWeight: 500 },
 
   // Tabs
-  tabs: { display: "flex", borderBottom: "1px solid #f1f5f9", background: "#ffffff", position: "sticky", top: 57, zIndex: 9, overflowX: "auto" },
-  tab: { flex: "1 0 auto", background: "transparent", border: "none", borderBottom: "2px solid transparent", color: "#94a3b8", padding: "13px 12px", fontFamily: FONT, fontSize: 12, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", letterSpacing: 0.2 },
-  tabActive: { color: "#6366f1", borderBottom: "2px solid #6366f1", fontWeight: 600 },
-  content: { padding: "16px 16px 120px" },
+  tabs: { display: "flex", borderBottom: "1px solid #1e2d3d", background: "#0b161f", position: "sticky", top: 57, zIndex: 9, overflowX: "auto" },
+  tab: { flex: "1 0 auto", background: "transparent", border: "none", borderBottom: "2px solid transparent", color: "#4a6280", padding: "13px 12px", fontFamily: F, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", letterSpacing: 0.3 },
+  tabActive: { color: "#4a9eff", borderBottom: "2px solid #4a9eff" },
+  content: { padding: "14px 14px 140px" },
 
-  // Market cards
-  marketCard: { background: "#ffffff", border: "1px solid #e8edf2", borderRadius: 14, padding: 20, marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" },
+  // Futures market card
+  marketCard: { background: "#0f1923", border: "1px solid #1e2d3d", borderRadius: 12, padding: 18, marginBottom: 10 },
   marketTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  leagueTag: { fontSize: 10, fontWeight: 600, letterSpacing: 1, borderRadius: 5, padding: "3px 9px" },
-  settledTag: { fontSize: 10, background: "#f0fdf4", color: "#16a34a", borderRadius: 5, padding: "3px 9px", fontWeight: 600, border: "1px solid #bbf7d0" },
-  pausedTag: { fontSize: 10, background: "#fffbeb", color: "#d97706", borderRadius: 5, padding: "3px 9px", fontWeight: 600, border: "1px solid #fde68a" },
-  pausedBadge: { fontSize: 10, background: "#fffbeb", color: "#d97706", borderRadius: 5, padding: "3px 9px", fontWeight: 600, border: "1px solid #fde68a" },
-  pausedNotice: { margin: "0 0 12px", fontSize: 13, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "9px 13px", fontWeight: 500 },
-  maxBetTag: { fontSize: 10, background: "#eef2ff", color: "#6366f1", borderRadius: 5, padding: "3px 9px", fontWeight: 600 },
-  actionTag: { fontSize: 10, color: "#94a3b8" },
-  marketTitle: { margin: "0 0 3px", fontSize: 17, fontWeight: 700, lineHeight: 1.3, color: "#1e293b" },
-  marketSub: { margin: "0 0 14px", fontSize: 11, color: "#94a3b8", fontWeight: 400 },
-  winnerAnnounce: { margin: "0 0 12px", fontSize: 14, color: "#16a34a", fontWeight: 700, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "9px 13px" },
+  leagueTag: { fontSize: 10, fontWeight: 700, letterSpacing: 1.5, borderRadius: 4, padding: "3px 8px" },
+  settledTag: { fontSize: 10, background: "rgba(34,197,94,0.1)", color: "#22c55e", borderRadius: 4, padding: "3px 8px", border: "1px solid rgba(34,197,94,0.2)" },
+  pausedTag: { fontSize: 10, background: "rgba(245,158,11,0.1)", color: "#f59e0b", borderRadius: 4, padding: "3px 8px", border: "1px solid rgba(245,158,11,0.2)" },
+  pausedBadge: { fontSize: 10, background: "rgba(245,158,11,0.1)", color: "#f59e0b", borderRadius: 4, padding: "2px 8px", border: "1px solid rgba(245,158,11,0.2)" },
+  pausedNotice: { margin: "0 0 12px", fontSize: 12, color: "#92400e", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, padding: "9px 13px" },
+  maxBetTag: { fontSize: 10, background: "rgba(74,158,255,0.1)", color: "#4a9eff", borderRadius: 4, padding: "3px 8px" },
+  actionTag: { fontSize: 10, color: "#4a6280" },
+  marketTitle: { margin: "0 0 3px", fontSize: 16, fontWeight: 700, lineHeight: 1.3, color: "#f8fafc" },
+  marketSub: { margin: "0 0 14px", fontSize: 11, color: "#4a6280" },
+  winnerAnnounce: { margin: "0 0 12px", fontSize: 14, color: "#22c55e", fontWeight: 700, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 8, padding: "9px 13px" },
   optionGrid: { display: "flex", flexDirection: "column", gap: 8 },
-  optionBtn: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "13px 16px", cursor: "pointer", width: "100%", transition: "all 0.12s" },
-  optionBtnSelected: { background: "#f0fdf4", border: "1.5px solid #16a34a" },
-  optionBtnDisabled: { opacity: 0.45, cursor: "not-allowed" },
-  optionLabel: { fontSize: 14, color: "#374151", fontFamily: FONT, textAlign: "left", fontWeight: 500 },
-  optionOdds: { fontSize: 15, fontWeight: 700, color: "#6366f1" },
-  optionOddsSelected: { color: "#16a34a" },
-  optionMoney: { fontSize: 10, color: "#94a3b8" },
-  moneyBar: { height: 3, background: "#f1f5f9", borderRadius: 2, marginTop: 3, marginBottom: 4, overflow: "hidden" },
-  moneyBarFill: { height: "100%", borderRadius: 2, transition: "width 0.4s ease", opacity: 0.7 },
-  stakeRow: { marginTop: 9, background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "11px 15px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  stakeTeam: { fontSize: 11, color: "#16a34a", flex: "1 1 100%", marginBottom: 2, fontWeight: 600 },
+  optionBtn: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "#192433", border: "1.5px solid #1e2d3d", borderRadius: 10, padding: "12px 16px", cursor: "pointer", width: "100%", transition: "all 0.12s" },
+  optionBtnSelected: { background: "#0d2a1a", border: "1.5px solid #22c55e" },
+  optionBtnDisabled: { opacity: 0.35, cursor: "not-allowed" },
+  optionLabel: { fontSize: 14, color: "#c8d8e8", fontFamily: F, textAlign: "left", fontWeight: 500 },
+  optionOdds: { fontSize: 15, fontWeight: 800, color: "#4a9eff", fontFamily: "'Barlow Condensed', sans-serif" },
+  optionOddsSelected: { color: "#22c55e" },
+  optionMoney: { fontSize: 10, color: "#4a6280" },
+  moneyBar: { height: 2, background: "#1e2d3d", borderRadius: 2, marginTop: 3, marginBottom: 4, overflow: "hidden" },
+  moneyBarFill: { height: "100%", borderRadius: 2, transition: "width 0.4s ease", opacity: 0.6 },
+  stakeRow: { marginTop: 8, background: "#0d1f2d", border: "1.5px solid #22c55e", borderRadius: 10, padding: "10px 14px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  stakeTeam: { fontSize: 11, color: "#22c55e", flex: "1 1 100%", marginBottom: 2, fontWeight: 600 },
   stakeInputWrap: { display: "flex", alignItems: "center", gap: 4 },
-  stakeDollar: { color: "#16a34a", fontSize: 15, fontWeight: 700 },
-  stakeInput: { background: "transparent", border: "none", borderBottom: "1.5px solid #bbf7d0", color: "#1e293b", fontFamily: FONT, fontSize: 15, width: 90, outline: "none", padding: "2px 4px" },
-  toWin: { fontSize: 13, color: "#16a34a", marginLeft: "auto", fontWeight: 600 },
-  slipFooter: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#ffffff", borderTop: "1px solid #e2e8f0", padding: "14px 16px", zIndex: 20, boxShadow: "0 -4px 20px rgba(0,0,0,0.07)" },
-  slipModeRow: { display: "flex", gap: 6, marginBottom: 12 },
-  slipModeBtn: { flex: 1, background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 8, padding: "8px 12px", fontFamily: FONT, fontSize: 12, cursor: "pointer", fontWeight: 500 },
-  slipModeBtnActive: { background: "#f0fdf4", border: "1.5px solid #16a34a", color: "#16a34a", fontWeight: 700 },
-  slipSummary: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px", marginBottom: 10 },
-  slipSummaryRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  slipSummaryLabel: { fontSize: 11, color: "#94a3b8" },
-  slipSummaryVal: { fontSize: 14, fontWeight: 700, color: "#1e293b" },
-  placeBetBtn: { width: "100%", background: "#6366f1", color: "#ffffff", border: "none", borderRadius: 10, padding: "14px", fontFamily: FONT, fontWeight: 700, fontSize: 15, cursor: "pointer", letterSpacing: 0.2 },
+  stakeDollar: { color: "#22c55e", fontSize: 14, fontWeight: 700 },
+  stakeInput: { background: "transparent", border: "none", borderBottom: "1.5px solid #22c55e", color: "#f8fafc", fontFamily: F, fontSize: 14, width: 90, outline: "none", padding: "2px 4px" },
+  toWin: { fontSize: 12, color: "#22c55e", marginLeft: "auto", fontWeight: 600 },
 
-  // Bet cards
-  betCard: { background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 17, marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" },
-  betCardWon: { border: "1px solid #bbf7d0", background: "#f0fdf4" },
-  betCardLost: { border: "1px solid #fecaca", background: "#fff1f2" },
-  betCardTop: { display: "flex", justifyContent: "space-between", marginBottom: 9 },
-  betMarket: { fontSize: 11, color: "#94a3b8" },
-  betPick: { fontSize: 16, fontWeight: 700, marginBottom: 9, color: "#1e293b" },
-  betAmounts: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#64748b", marginTop: 9 },
+  // Bet slip footer
+  slipFooter: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#0b161f", borderTop: "1px solid #1e2d3d", padding: "14px 16px", zIndex: 20, boxShadow: "0 -8px 40px rgba(0,0,0,0.7)" },
+  slipModeRow: { display: "flex", gap: 6, marginBottom: 12 },
+  slipModeBtn: { flex: 1, background: "#192433", border: "1px solid #1e2d3d", color: "#4a6280", borderRadius: 8, padding: "8px 12px", fontFamily: F, fontSize: 12, cursor: "pointer", fontWeight: 600 },
+  slipModeBtnActive: { background: "rgba(34,197,94,0.1)", border: "1.5px solid #22c55e", color: "#22c55e", fontWeight: 700 },
+  slipSummary: { background: "#192433", border: "1px solid #1e2d3d", borderRadius: 10, padding: "10px 14px", marginBottom: 10 },
+  slipSummaryRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  slipSummaryLabel: { fontSize: 11, color: "#4a6280" },
+  slipSummaryVal: { fontSize: 14, fontWeight: 700 },
+  placeBetBtn: { width: "100%", background: "#4a9eff", color: "#07111a", border: "none", borderRadius: 10, padding: "14px", fontFamily: F, fontWeight: 800, fontSize: 14, cursor: "pointer", letterSpacing: 0.5 },
+
+  // Bet cards (My Bets tab)
+  betCard: { background: "#0f1923", border: "1px solid #1e2d3d", borderRadius: 12, padding: 16, marginBottom: 10 },
+  betCardWon: { border: "1px solid rgba(34,197,94,0.3)", background: "rgba(34,197,94,0.05)" },
+  betCardLost: { border: "1px solid rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.03)" },
+  betCardTop: { display: "flex", justifyContent: "space-between", marginBottom: 8 },
+  betMarket: { fontSize: 11, color: "#4a6280" },
+  betPick: { fontSize: 15, fontWeight: 700, marginBottom: 8, color: "#f8fafc" },
+  betAmounts: { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#4a6280", marginTop: 8 },
 
   // Leaderboard
   empty: { textAlign: "center", padding: "60px 20px" },
-  emptyText: { color: "#94a3b8", fontSize: 14, margin: 0 },
-  boardRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 0" },
+  emptyText: { color: "#4a6280", fontSize: 13, margin: 0 },
+  boardRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0" },
   boardLeft: { display: "flex", alignItems: "center", gap: 12 },
   boardRight: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 },
-  boardRank: { fontSize: 16, color: "#1e293b", width: 32, fontWeight: 700 },
+  boardRank: { fontSize: 16, color: "#f8fafc", width: 32, fontWeight: 700 },
   boardName: { fontSize: 15, fontWeight: 600 },
-  boardBal: { fontSize: 16, fontWeight: 700, color: "#16a34a" },
+  boardBal: { fontSize: 16, fontWeight: 700, color: "#22c55e" },
 
   // Admin
-  adminWrap: { minHeight: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: FONT, padding: "20px 16px" },
+  adminWrap: { minHeight: "100vh", background: "#07111a", color: "#e2e8f0", fontFamily: F, padding: "20px 16px" },
   adminHeader: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24 },
-  backBtn: { background: "transparent", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontFamily: FONT, fontSize: 13 },
+  backBtn: { background: "transparent", border: "1px solid #1e2d3d", color: "#4a6280", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontFamily: F, fontSize: 12 },
   adminTitleRow: { display: "flex", flexDirection: "column" },
-  adminTitle: { fontSize: 17, letterSpacing: 1, color: "#1e293b", fontWeight: 700, lineHeight: 1 },
-  adminTitleSub: { fontSize: 11, color: "#94a3b8", marginTop: 3 },
+  adminTitle: { fontSize: 18, letterSpacing: 3, color: "#f8fafc", fontWeight: 800, lineHeight: 1, fontFamily: "'Barlow Condensed', sans-serif" },
+  adminTitleSub: { fontSize: 11, color: "#4a6280", marginTop: 3 },
   pinWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 300 },
-  pinLabel: { color: "#64748b", fontSize: 14, margin: 0 },
+  pinLabel: { color: "#4a6280", fontSize: 13, margin: 0 },
   adminTabRow: { display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" },
-  adminTab: { background: "#ffffff", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 8, padding: "8px 14px", fontFamily: FONT, fontSize: 13, cursor: "pointer", fontWeight: 500 },
-  adminTabActive: { background: "#6366f1", color: "#ffffff", border: "1px solid #6366f1", fontWeight: 700 },
+  adminTab: { background: "#0f1923", border: "1px solid #1e2d3d", color: "#4a6280", borderRadius: 8, padding: "8px 14px", fontFamily: F, fontSize: 12, cursor: "pointer", fontWeight: 600 },
+  adminTabActive: { background: "#4a9eff", color: "#07111a", border: "1px solid #4a9eff", fontWeight: 700 },
   adminContent: { display: "flex", flexDirection: "column", gap: 14 },
-  adminSection: { background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" },
-  sectionHead: { margin: "0 0 14px", fontSize: 11, letterSpacing: 1.5, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" },
-  leaderRow: { display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" },
-  leaderRank: { fontSize: 11, color: "#94a3b8", width: 22 },
-  leaderName: { flex: 1, fontSize: 15, fontWeight: 500, minWidth: 80, color: "#1e293b" },
-  leaderBal: { fontSize: 15, fontWeight: 700, color: "#16a34a" },
-  adjustBtn: { background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 6, padding: "4px 10px", fontFamily: FONT, fontSize: 13, cursor: "pointer" },
-  adjustRow: { display: "flex", gap: 8, alignItems: "center", padding: "8px 0 12px", borderBottom: "1px solid #f1f5f9" },
-  settleCard: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 15, marginBottom: 10 },
-  settleTitle: { fontSize: 14, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", color: "#1e293b" },
-  settledBadge: { fontSize: 10, background: "#f0fdf4", color: "#16a34a", borderRadius: 5, padding: "2px 9px", fontWeight: 600, border: "1px solid #bbf7d0" },
-  settleOptions: { display: "flex", flexDirection: "column", gap: 7 },
-  settleBtn: { background: "#ffffff", border: "1px solid #bbf7d0", color: "#16a34a", borderRadius: 8, padding: "9px 14px", fontFamily: FONT, fontSize: 13, cursor: "pointer", textAlign: "left", fontWeight: 500 },
-  winnerText: { margin: 0, fontSize: 14, color: "#6366f1", fontWeight: 700 },
-  formRow: { marginBottom: 15 },
-  formLabel: { display: "block", fontSize: 11, color: "#94a3b8", letterSpacing: 1, marginBottom: 7, fontWeight: 700, textTransform: "uppercase" },
+  adminSection: { background: "#0f1923", border: "1px solid #1e2d3d", borderRadius: 14, padding: 18 },
+  sectionHead: { margin: "0 0 14px", fontSize: 10, letterSpacing: 2, color: "#4a6280", fontWeight: 700, textTransform: "uppercase" },
+  leaderRow: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #1a2530", flexWrap: "wrap" },
+  leaderRank: { fontSize: 11, color: "#4a6280", width: 22 },
+  leaderName: { flex: 1, fontSize: 14, fontWeight: 500, minWidth: 80, color: "#f8fafc" },
+  leaderBal: { fontSize: 14, fontWeight: 700, color: "#22c55e" },
+  adjustBtn: { background: "#192433", border: "1px solid #1e2d3d", color: "#4a6280", borderRadius: 6, padding: "4px 10px", fontFamily: F, fontSize: 12, cursor: "pointer" },
+  adjustRow: { display: "flex", gap: 8, alignItems: "center", padding: "8px 0 12px", borderBottom: "1px solid #1a2530" },
+  settleCard: { background: "#0a1420", border: "1px solid #1e2d3d", borderRadius: 10, padding: 14, marginBottom: 10 },
+  settleTitle: { fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", color: "#f8fafc" },
+  settledBadge: { fontSize: 10, background: "rgba(34,197,94,0.1)", color: "#22c55e", borderRadius: 4, padding: "2px 8px", border: "1px solid rgba(34,197,94,0.2)" },
+  settleOptions: { display: "flex", flexDirection: "column", gap: 6 },
+  settleBtn: { background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)", color: "#22c55e", borderRadius: 8, padding: "9px 14px", fontFamily: F, fontSize: 12, cursor: "pointer", textAlign: "left", fontWeight: 600 },
+  winnerText: { margin: 0, fontSize: 13, color: "#4a9eff", fontWeight: 700 },
+  formRow: { marginBottom: 14 },
+  formLabel: { display: "block", fontSize: 10, color: "#4a6280", letterSpacing: 1, marginBottom: 6, fontWeight: 700, textTransform: "uppercase" },
   toggleRow: { display: "flex", gap: 8 },
-  toggleBtn: { flex: 1, background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 8, padding: 10, fontFamily: FONT, fontSize: 14, cursor: "pointer" },
-  toggleBtnActive: { background: "#6366f1", color: "#ffffff", border: "1px solid #6366f1", fontWeight: 700 },
+  toggleBtn: { flex: 1, background: "#192433", border: "1px solid #1e2d3d", color: "#4a6280", borderRadius: 8, padding: 10, fontFamily: F, fontSize: 13, cursor: "pointer" },
+  toggleBtnActive: { background: "#4a9eff", color: "#07111a", border: "1px solid #4a9eff", fontWeight: 700 },
   oddsRow: { display: "flex", gap: 8 },
-  removeBtn: { background: "#fff1f2", color: "#ef4444", border: "none", borderRadius: 6, width: 36, height: 44, cursor: "pointer", flexShrink: 0, fontSize: 13 },
-  addOptionBtn: { background: "transparent", border: "1px dashed #e2e8f0", color: "#94a3b8", borderRadius: 8, padding: 10, fontFamily: FONT, fontSize: 13, cursor: "pointer", width: "100%", marginTop: 4 },
-  betRow: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 13, marginBottom: 8 },
+  removeBtn: { background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "none", borderRadius: 6, width: 36, height: 44, cursor: "pointer", flexShrink: 0, fontSize: 12 },
+  addOptionBtn: { background: "transparent", border: "1px dashed #1e2d3d", color: "#4a6280", borderRadius: 8, padding: 10, fontFamily: F, fontSize: 12, cursor: "pointer", width: "100%", marginTop: 4 },
+  betRow: { background: "#0a1420", border: "1px solid #1e2d3d", borderRadius: 10, padding: 12, marginBottom: 8 },
   betRowTop: { display: "flex", justifyContent: "space-between", marginBottom: 4 },
-  betRowUser: { fontSize: 14, fontWeight: 700, color: "#6366f1" },
-  betRowMarket: { fontSize: 11, color: "#94a3b8", marginBottom: 3 },
-  betRowPick: { fontSize: 14, fontWeight: 600, marginBottom: 7, color: "#1e293b" },
-  betRowAmounts: { display: "flex", gap: 12, fontSize: 12, color: "#64748b", flexWrap: "wrap" },
+  betRowUser: { fontSize: 13, fontWeight: 700, color: "#4a9eff" },
+  betRowMarket: { fontSize: 11, color: "#4a6280", marginBottom: 3 },
+  betRowPick: { fontSize: 14, fontWeight: 600, marginBottom: 7, color: "#f8fafc" },
+  betRowAmounts: { display: "flex", gap: 12, fontSize: 11, color: "#4a6280", flexWrap: "wrap" },
 };
