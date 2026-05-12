@@ -303,7 +303,7 @@ export default function App() {
 
   //  Derived 
 
-  const allMarkets = [...markets.games, ...markets.futures];
+  const allMarkets = [...(markets.games||[]), ...(markets.futures||[])];
   const slipEntries = Object.entries(betSlip);
   const slipLegs = slipEntries.map(([optId, v]) => {
     const market = allMarkets.find(m => m.id === v.marketId);
@@ -319,15 +319,24 @@ export default function App() {
     return m ? getBaseTitle(m.title) : null;
   });
   // Only block ML + Spread from same game. ML+OU and Spread+OU are fine.
-  const isSpread = id => { const m = allMarkets.find(x => x.options.some(o => o.id === id)); return m?.title.endsWith(" - Spread"); };
-  const isML = id => { const m = allMarkets.find(x => x.options.some(o => o.id === id)); return m && !m.title.includes(" - Spread") && !m.title.includes(" - O/U"); };
-  const hasSameGameConflict = slipBaseTitles.some((base, i) =>
-    slipBaseTitles.some((other, j) => {
-      if (i === j || !base || !other || base !== other) return false;
-      const idI = slipEntries[i]?.[0], idJ = slipEntries[j]?.[0];
-      return (isML(idI) && isSpread(idJ)) || (isSpread(idI) && isML(idJ));
-    })
-  );
+  const getMktForOpt = id => allMarkets.find(x => (x.options || []).some(o => o.id === id));
+  const isSpreadMkt = mkt => mkt?.title?.endsWith(" - Spread") || false;
+  const isMLMkt = mkt => mkt && !mkt.title?.includes(" - Spread") && !mkt.title?.includes(" - O/U");
+  const hasSameGameConflict = (() => {
+    // Build list of {base, isSpread, isML} per slip leg
+    const legInfo = slipLegs.map(l => {
+      const m = allMarkets.find(x => x.id === l.marketId);
+      if (!m) return null;
+      return { base: getBaseTitle(m.title), isSp: isSpreadMkt(m), isMl: isMLMkt(m) };
+    }).filter(Boolean);
+    for (let i = 0; i < legInfo.length; i++) {
+      for (let j = i + 1; j < legInfo.length; j++) {
+        if (legInfo[i].base !== legInfo[j].base) continue;
+        if ((legInfo[i].isMl && legInfo[j].isSp) || (legInfo[i].isSp && legInfo[j].isMl)) return true;
+      }
+    }
+    return false;
+  })();
   const parlayEligible = multiMarket && !slipHasFuture && !hasSameGameConflict;
   const parlayOdds = slipLegs.length > 1 ? combinedAmericanOdds(slipLegs) : null;
   const parlayPayout = parlayStake > 0 && parlayOdds != null ? calcPayout(parseFloat(parlayStake), parlayOdds) : 0;
@@ -364,8 +373,8 @@ export default function App() {
   const activePlayers = leaderboard.filter(p => bets.some(b => b.username === p.name));
   const inactivePlayers = leaderboard.filter(p => !bets.some(b => b.username === p.name));
 
-  const rawGames = markets.games;
-  const rawFutures = markets.futures;
+  const rawGames = markets.games || [];
+  const rawFutures = markets.futures || [];
   const displayMarkets = activeTab === "games"
     ? (gamesFilter === "open"
         ? rawGames.filter(m => m.status === "open" || m.status === "paused")
