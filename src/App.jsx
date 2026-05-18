@@ -41,6 +41,12 @@ const INITIAL_MARKETS = {
 const STARTING_BALANCE = 1000;
 const ADMIN_PIN = "543211";
 
+const DEFAULT_TAGS = [
+  { id: "lunar", name: "Lunar", color: "#1E5FFF" },
+  { id: "galactic", name: "Galactic", color: "#C93DD9" },
+  { id: "toos", name: "ToOS", color: "#FFB800" },
+];
+
 //  Banned words 
 const BANNED_WORDS = [
   "fuck","shit","ass","bitch","cunt","dick","cock","pussy","prick","bastard",
@@ -81,13 +87,9 @@ function combinedAmericanOdds(legs) {
   const dec = legs.reduce((acc, l) => acc * toDecimal(l.odds), 1);
   return dec >= 2 ? Math.round((dec - 1) * 100) : Math.round(-100 / (dec - 1));
 }
-function leagueMeta(subtitle = "") {
-  const s = (subtitle || "").toLowerCase();
-  if (s.includes("lunar")) return { tag: "LUNAR", color: "#1E5FFF", bg: "rgba(30,95,255,0.08)" };
-  if (s.includes("galactic")) return { tag: "GALACTIC", color: "#C93DD9", bg: "rgba(201,61,217,0.08)" };
-  if (s.includes("toos") || s.includes("championship")) return { tag: "ToOS", color: "#FFB800", bg: "rgba(255,184,0,0.10)" };
-  return { tag: "FUTURE", color: "#6571A0", bg: "rgba(101,113,160,0.08)" };
-}
+// Tags are now manual — no auto-derivation from subtitle.
+// (legacy helper kept as a safety net; returns neutral if anything still calls it.)
+function leagueMeta() { return { tag: "", color: "#6571A0", bg: "rgba(101,113,160,0.08)" }; }
 
 //  Storage 
 
@@ -203,16 +205,26 @@ export default function App() {
   const [addSpread, setAddSpread] = useState({ enabled: false, line: "", favoriteOdds: -110, underdogOdds: -110, favorite: 0 });
   const [addOU, setAddOU] = useState({ enabled: false, line: "", overOdds: -110, underOdds: -110 });
   const [addMaxBet, setAddMaxBet] = useState("");
+  const [addTagId, setAddTagId] = useState("");
   const [siteMaxInput, setSiteMaxInput] = useState("");
   const [headerInput, setHeaderInput] = useState("");
   const [editMaxBets, setEditMaxBets] = useState({});
   const [editOdds, setEditOdds] = useState({});
   const [editSubs, setEditSubs] = useState({});
+  const [editTitles, setEditTitles] = useState({});
+  const [editTagIds, setEditTagIds] = useState({});
+  const [editLabels, setEditLabels] = useState({});
+  const [addOptInputs, setAddOptInputs] = useState({});
+  const [tags, setTags] = useState([]);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#1E5FFF");
+  const [editTagDraft, setEditTagDraft] = useState({});
 
   // ── Storage helpers ─────────
   async function saveUsers(u) { setUsers(u); await storageSet("mln_users", u); }
   async function saveMarkets(m) { setMarkets(m); await storageSet("mln_markets", m); }
   async function saveBets(b) { setBets(b); await storageSet("mln_bets", b); }
+  async function saveTags(t) { setTags(t); await storageSet("mln_tags", t); }
 
   useEffect(() => {
     let mounted = true;
@@ -223,9 +235,29 @@ export default function App() {
       const lv = await storageGet("mln_leaderboard_visible");
       const hm = await storageGet("mln_header_msg");
       const sm = await storageGet("mln_site_max_bet");
+      const t = await storageGet("mln_tags");
       if (!mounted) return;
       setUsers(u || {});
-      if (m && m.games) setMarkets(m); else { setMarkets(INITIAL_MARKETS); await storageSet("mln_markets", INITIAL_MARKETS); }
+      let finalMarkets = (m && m.games) ? m : INITIAL_MARKETS;
+      // One-time tag system bootstrap: if no tags exist, seed defaults and migrate existing markets.
+      if (!t || !Array.isArray(t) || t.length === 0) {
+        await storageSet("mln_tags", DEFAULT_TAGS);
+        setTags(DEFAULT_TAGS);
+        const migrate = mk => {
+          if (mk.tagId !== undefined && mk.tagId !== null) return mk;
+          const sub = (mk.subtitle || "").toLowerCase();
+          if (sub.includes("lunar")) return { ...mk, tagId: "lunar" };
+          if (sub.includes("galactic")) return { ...mk, tagId: "galactic" };
+          if (sub.includes("toos") || sub.includes("championship")) return { ...mk, tagId: "toos" };
+          return { ...mk, tagId: null };
+        };
+        finalMarkets = { games: (finalMarkets.games || []).map(migrate), futures: (finalMarkets.futures || []).map(migrate) };
+        await storageSet("mln_markets", finalMarkets);
+      } else {
+        setTags(t);
+        if (!m || !m.games) await storageSet("mln_markets", finalMarkets);
+      }
+      setMarkets(finalMarkets);
       setBets(b || []);
       setLeaderboardVisible(lv !== false);
       setHeaderMsg(hm || "");
@@ -238,6 +270,7 @@ export default function App() {
       onValue(ref(db, "mln_leaderboard_visible"), s => { if (s.exists()) setLeaderboardVisible(parseFirebase(s.val()) !== false); }),
       onValue(ref(db, "mln_header_msg"), s => { if (s.exists()) setHeaderMsg(parseFirebase(s.val()) || ""); }),
       onValue(ref(db, "mln_site_max_bet"), s => { if (s.exists()) setSiteMaxBet(parseFirebase(s.val()) || null); }),
+      onValue(ref(db, "mln_tags"), s => { if (s.exists()) { const v = parseFirebase(s.val()); if (Array.isArray(v)) setTags(v); } }),
     ];
     return () => { mounted = false; unsubs.forEach(u => u()); };
   }, []);
@@ -626,6 +659,7 @@ export default function App() {
     const mainMarket = {
       id: baseId, type: addType,
       title: addTitle.trim(), subtitle: addSubtitle.trim() || "Custom Market",
+      tagId: addTagId || null,
       status: "open", winner: null,
       maxBet: addMaxBet ? parseFloat(addMaxBet) : null,
       options: validOpts.map(o => ({ id: `${baseId}_${uid()}`, label: o.label.trim(), odds: parseInt(o.odds) })),
@@ -638,6 +672,7 @@ export default function App() {
       const spreadId = uid();
       toAdd.push({
         id: spreadId, type: "game", title: `${addTitle.trim()} - Spread`, subtitle: addSubtitle.trim() || "Custom Market",
+        tagId: addTagId || null,
         status: "open", winner: null, maxBet: addMaxBet ? parseFloat(addMaxBet) : null,
         options: [
           { id: `${spreadId}_fav`, label: `${validOpts[fav].label.trim()} -${line}`, odds: parseInt(addSpread.favoriteOdds) },
@@ -650,6 +685,7 @@ export default function App() {
       const ouId = uid();
       toAdd.push({
         id: ouId, type: "game", title: `${addTitle.trim()} - O/U ${ouLine}`, subtitle: addSubtitle.trim() || "Custom Market",
+        tagId: addTagId || null,
         status: "open", winner: null, maxBet: addMaxBet ? parseFloat(addMaxBet) : null,
         options: [
           { id: `${ouId}_o`, label: `Over ${ouLine}`, odds: parseInt(addOU.overOdds) },
@@ -665,7 +701,7 @@ export default function App() {
     setAddTitle(""); setAddSubtitle(""); setAddOpts([{ label: "", odds: "" }, { label: "", odds: "" }]);
     setAddSpread({ enabled: false, line: "", favoriteOdds: -110, underdogOdds: -110, favorite: 0 });
     setAddOU({ enabled: false, line: "", overOdds: -110, underOdds: -110 });
-    setAddMaxBet("");
+    setAddMaxBet(""); setAddTagId("");
     notify("Market added");
   }
 
@@ -680,6 +716,84 @@ export default function App() {
   async function updateMarketSubtitle(marketId, newSubtitle) {
     const upd = m => m.id === marketId ? { ...m, subtitle: newSubtitle } : m;
     await saveMarkets({ games: (markets.games || []).map(upd), futures: (markets.futures || []).map(upd) });
+  }
+  async function updateMarketTitle(marketId, newTitle) {
+    const upd = m => m.id === marketId ? { ...m, title: newTitle } : m;
+    await saveMarkets({ games: (markets.games || []).map(upd), futures: (markets.futures || []).map(upd) });
+  }
+  async function updateMarketTagId(marketId, newTagId) {
+    const upd = m => m.id === marketId ? { ...m, tagId: newTagId || null } : m;
+    await saveMarkets({ games: (markets.games || []).map(upd), futures: (markets.futures || []).map(upd) });
+  }
+  async function updateOptionLabel(marketId, optId, newLabel) {
+    const upd = m => m.id !== marketId ? m : { ...m, options: (m.options || []).map(o => o.id === optId ? { ...o, label: newLabel } : o) };
+    await saveMarkets({ games: (markets.games || []).map(upd), futures: (markets.futures || []).map(upd) });
+  }
+  async function addMarketOption(marketId, label, odds) {
+    const trimmed = (label || "").trim();
+    const oddsNum = parseInt(odds);
+    if (!trimmed || isNaN(oddsNum)) { notify("Need label and odds"); return; }
+    const newOpt = { id: `${marketId}_${uid()}`, label: trimmed, odds: oddsNum };
+    const upd = m => m.id !== marketId ? m : { ...m, options: [...(m.options || []), newOpt] };
+    await saveMarkets({ games: (markets.games || []).map(upd), futures: (markets.futures || []).map(upd) });
+    notify("Option added");
+  }
+  async function removeMarketOption(marketId, optId) {
+    // Refund any pending bets on this option, drop parlay legs targeting it.
+    const newUsers = { ...users };
+    const newBets = bets.map(b => {
+      if (b.status !== "pending") return b;
+      if (b.betType === "straight") {
+        if (b.marketId !== marketId || b.optionId !== optId) return b;
+        newUsers[b.username] = { ...newUsers[b.username], balance: (newUsers[b.username]?.balance || 0) + b.stake };
+        return { ...b, status: "pushed" };
+      }
+      if (b.betType === "parlay") {
+        const legs = b.legs || [];
+        if (!legs.some(l => l.marketId === marketId && l.optionId === optId)) return b;
+        const newLegs = legs.map(l => (l.marketId === marketId && l.optionId === optId) ? { ...l, status: "pushed" } : l);
+        const remaining = newLegs.filter(l => l.status !== "pushed");
+        if (remaining.length === 0) {
+          newUsers[b.username] = { ...newUsers[b.username], balance: (newUsers[b.username]?.balance || 0) + b.stake };
+          return { ...b, legs: newLegs, status: "pushed" };
+        }
+        if (remaining.length === 1) {
+          const leg = remaining[0];
+          return { ...b, legs: newLegs, combinedOdds: leg.odds, payout: calcPayout(b.stake, leg.odds) };
+        }
+        const newOdds = combinedAmericanOdds(remaining);
+        return { ...b, legs: newLegs, combinedOdds: newOdds, payout: calcPayout(b.stake, newOdds) };
+      }
+      return b;
+    });
+    const upd = m => m.id !== marketId ? m : { ...m, options: (m.options || []).filter(o => o.id !== optId) };
+    const newMarkets = { games: (markets.games || []).map(upd), futures: (markets.futures || []).map(upd) };
+    await saveUsers(newUsers); await saveMarkets(newMarkets); await saveBets(newBets);
+    notify("Option removed, pending bets refunded");
+  }
+
+  // ── Tag CRUD ──
+  function getTag(tagId) {
+    if (!tagId) return null;
+    return (tags || []).find(t => t.id === tagId) || null;
+  }
+  async function addNewTag(name, color) {
+    const trimmed = (name || "").trim();
+    if (!trimmed) { notify("Tag needs a name"); return; }
+    if ((tags || []).some(t => t.name.toLowerCase() === trimmed.toLowerCase())) { notify("Tag already exists"); return; }
+    const t = { id: uid(), name: trimmed, color: color || "#1E5FFF" };
+    await saveTags([...(tags || []), t]);
+    notify(`Tag "${trimmed}" added`);
+  }
+  async function updateTagDef(id, patch) {
+    await saveTags((tags || []).map(t => t.id === id ? { ...t, ...patch } : t));
+  }
+  async function deleteTagDef(id) {
+    // Clear tagId from any markets using this tag
+    const upd = m => m.tagId === id ? { ...m, tagId: null } : m;
+    await saveMarkets({ games: (markets.games || []).map(upd), futures: (markets.futures || []).map(upd) });
+    await saveTags((tags || []).filter(t => t.id !== id));
+    notify("Tag deleted");
   }
 
   // ── Render helpers (plain functions, NOT components-in-map) ──
@@ -831,7 +945,7 @@ export default function App() {
         {notification && <div style={S.notify}>{notification}</div>}
 
         <div style={S.adminTabs}>
-          {[["settle", "Settle"], ["players", "Players"], ["add", "Add"], ["edit", "Edit"], ["bets", "Bets"], ["danger", "Danger"]].map(([k, l]) => (
+          {[["settle", "Settle"], ["players", "Players"], ["add", "Add"], ["edit", "Edit"], ["tags", "Tags"], ["bets", "Bets"], ["danger", "Danger"]].map(([k, l]) => (
             <button key={k} style={{ ...S.adminTab, ...(adminTab === k ? S.adminTabActive : {}) }} onClick={() => setAdminTab(k)}>{l}</button>
           ))}
         </div>
@@ -851,14 +965,14 @@ export default function App() {
                 </span>
               </div>
               {allMarkets.map(market => {
-                const meta = leagueMeta(market.subtitle);
+                const tag = getTag(market.tagId);
                 const totalAction = (market.options || []).reduce((s, o) => s + (optionTotals[o.id] || 0), 0);
                 return (
                   <div key={market.id} style={S.adminCard}>
-                    <div style={{ height: 4, background: meta.color, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 12 }} />
+                    <div style={{ height: 4, background: tag ? tag.color : C.line, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 12 }} />
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ ...S.catBadge, background: meta.color }}>{meta.tag}</span>
+                        {tag && <span style={{ ...S.catBadge, background: tag.color }}>{tag.name}</span>}
                         <p style={S.adminCardTitle}>{market.title}</p>
                         <p style={S.adminCardSub}>{market.subtitle}</p>
                       </div>
@@ -1048,6 +1162,20 @@ export default function App() {
               </>)}
 
               <div style={S.formRow}>
+                <label style={S.formLabel}>TAG (optional)</label>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <select style={{ ...S.input, flex: 1 }} value={addTagId}
+                    onChange={e => setAddTagId(e.target.value)}>
+                    <option value="">— No tag —</option>
+                    {(tags || []).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  {addTagId && (() => {
+                    const pt = (tags || []).find(t => t.id === addTagId);
+                    return pt ? <span style={{ ...S.catBadge, background: pt.color }}>{pt.name}</span> : null;
+                  })()}
+                </div>
+              </div>
+              <div style={S.formRow}>
                 <label style={S.formLabel}>MAX BET (optional)</label>
                 <input style={S.input} type="number" placeholder="e.g., 100" value={addMaxBet} onChange={e => setAddMaxBet(e.target.value)} />
               </div>
@@ -1087,83 +1215,229 @@ export default function App() {
           {adminTab === "edit" && (
             <div>
               <h3 style={S.adminH3}>Edit Markets</h3>
+              <p style={{ fontSize: 13, color: C.sub, marginTop: -8, marginBottom: 14, fontWeight: 500 }}>
+                Edit any field on any market. Removing an option refunds pending bets on it.
+              </p>
               {allMarkets.map(m => {
-                const currentSub = editSubs[m.id] !== undefined ? editSubs[m.id] : m.subtitle;
-                const previewMeta = leagueMeta(currentSub);
+                const curTitle = editTitles[m.id] !== undefined ? editTitles[m.id] : m.title;
+                const curSub = editSubs[m.id] !== undefined ? editSubs[m.id] : (m.subtitle || "");
+                const curTagId = editTagIds[m.id] !== undefined ? editTagIds[m.id] : (m.tagId || "");
+                const currentTag = getTag(m.tagId);
+                const addOptDraft = addOptInputs[m.id] || { label: "", odds: "" };
                 return (
                 <div key={m.id} style={S.adminCard}>
-                  <div style={{ height: 3, background: leagueMeta(m.subtitle).color, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 10 }} />
-                  <p style={S.adminCardTitle}>{m.title}</p>
+                  <div style={{ height: 3, background: currentTag ? currentTag.color : C.line, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 10 }} />
                   <p style={S.adminCardSub}>
-                    <span style={{ ...S.catBadge, background: leagueMeta(m.subtitle).color, marginRight: 6 }}>{leagueMeta(m.subtitle).tag}</span>
-                    {m.subtitle} — <span style={{ color: m.status === "open" ? C.pos : m.status === "paused" ? C.gold : C.sub, fontWeight: 700 }}>{m.status}</span>
+                    {currentTag && <span style={{ ...S.catBadge, background: currentTag.color, marginRight: 6 }}>{currentTag.name}</span>}
+                    <span style={{ color: m.status === "open" ? C.pos : m.status === "paused" ? C.gold : C.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{m.status}</span>
+                    {m.type === "future" && <span style={{ marginLeft: 8, color: C.sub, fontWeight: 500 }}>future</span>}
                   </p>
 
-                  {/* Tag / subtitle editor */}
-                  <div style={{ marginTop: 10, marginBottom: 10, padding: 10, background: C.rail, borderRadius: 4 }}>
-                    <label style={{ ...S.formLabel, marginBottom: 6 }}>TAG / SUBTITLE</label>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                      {["Lunar League", "Galactic League", "ToOS", "Championship", "Season Future", "Custom Market"].map(preset => (
-                        <button key={preset} style={{ ...S.btnSecondary, fontSize: 11, padding: "5px 10px" }}
-                          onClick={() => setEditSubs({ ...editSubs, [m.id]: preset })}>
-                          {preset}
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input style={{ ...S.input, flex: 1 }} placeholder="e.g., Lunar League - Semifinal"
-                        value={currentSub}
-                        onChange={e => setEditSubs({ ...editSubs, [m.id]: e.target.value })} />
-                      <span style={{ ...S.catBadge, background: previewMeta.color, flexShrink: 0 }}>{previewMeta.tag}</span>
+                  {/* Title */}
+                  <div style={{ marginTop: 10 }}>
+                    <label style={S.formLabel}>TITLE</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input style={{ ...S.input, flex: 1 }} value={curTitle}
+                        onChange={e => setEditTitles({ ...editTitles, [m.id]: e.target.value })} />
                       <button style={S.btnSecondary}
-                        disabled={editSubs[m.id] === undefined || editSubs[m.id] === m.subtitle}
+                        disabled={editTitles[m.id] === undefined || editTitles[m.id].trim() === m.title || !editTitles[m.id].trim()}
                         onClick={() => {
-                          const v = (editSubs[m.id] || "").trim();
+                          const v = (editTitles[m.id] || "").trim();
                           if (v) {
-                            updateMarketSubtitle(m.id, v);
-                            const ne = { ...editSubs }; delete ne[m.id]; setEditSubs(ne);
-                            notify("Tag updated");
+                            updateMarketTitle(m.id, v);
+                            const ne = { ...editTitles }; delete ne[m.id]; setEditTitles(ne);
+                            notify("Title saved");
                           }
                         }}>SAVE</button>
                     </div>
-                    <div style={{ fontSize: 11, color: C.sub, marginTop: 4, fontWeight: 500 }}>
-                      Tag derives from subtitle: "lunar" → LUNAR, "galactic" → GALACTIC, "toos"/"championship" → ToOS.
+                  </div>
+
+                  {/* Subtitle */}
+                  <div style={{ marginTop: 10 }}>
+                    <label style={S.formLabel}>SUBTITLE</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input style={{ ...S.input, flex: 1 }} value={curSub}
+                        placeholder="e.g., Lunar League - Semifinal"
+                        onChange={e => setEditSubs({ ...editSubs, [m.id]: e.target.value })} />
+                      <button style={S.btnSecondary}
+                        disabled={editSubs[m.id] === undefined || editSubs[m.id] === (m.subtitle || "")}
+                        onClick={() => {
+                          updateMarketSubtitle(m.id, (editSubs[m.id] || "").trim());
+                          const ne = { ...editSubs }; delete ne[m.id]; setEditSubs(ne);
+                          notify("Subtitle saved");
+                        }}>SAVE</button>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 6, marginTop: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                    <input style={{ ...S.input, width: 110 }} type="number" placeholder="Max bet"
-                      value={editMaxBets[m.id] !== undefined ? editMaxBets[m.id] : (m.maxBet || "")}
-                      onChange={e => setEditMaxBets({ ...editMaxBets, [m.id]: e.target.value })} />
-                    <button style={S.btnSecondary} onClick={() => {
-                      const v = parseFloat(editMaxBets[m.id]);
-                      updateMarketMaxBet(m.id, isNaN(v) ? null : v);
-                      const ne = { ...editMaxBets }; delete ne[m.id]; setEditMaxBets(ne);
-                    }}>SET MAX</button>
-                    <button style={S.btnSecondary} onClick={() => togglePauseMarket(m.id)}>
-                      {m.status === "paused" ? "REOPEN" : "PAUSE"}
-                    </button>
+                  {/* Tag */}
+                  <div style={{ marginTop: 10 }}>
+                    <label style={S.formLabel}>TAG</label>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <select style={{ ...S.input, flex: 1 }} value={curTagId}
+                        onChange={e => setEditTagIds({ ...editTagIds, [m.id]: e.target.value })}>
+                        <option value="">— No tag —</option>
+                        {(tags || []).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                      {curTagId && (() => {
+                        const previewTag = (tags || []).find(t => t.id === curTagId);
+                        return previewTag ? <span style={{ ...S.catBadge, background: previewTag.color, flexShrink: 0 }}>{previewTag.name}</span> : null;
+                      })()}
+                      <button style={S.btnSecondary}
+                        disabled={editTagIds[m.id] === undefined || editTagIds[m.id] === (m.tagId || "")}
+                        onClick={() => {
+                          updateMarketTagId(m.id, editTagIds[m.id] || null);
+                          const ne = { ...editTagIds }; delete ne[m.id]; setEditTagIds(ne);
+                          notify("Tag saved");
+                        }}>SAVE</button>
+                    </div>
                   </div>
-                  <div>
-                    {(m.options || []).map(o => (
-                      <div key={o.id} style={{ display: "flex", gap: 6, marginBottom: 4, alignItems: "center" }}>
-                        <span style={{ flex: 1, fontSize: 13, color: C.ink2 }}>{o.label}</span>
-                        <input style={{ ...S.input, width: 90 }} type="number"
-                          value={editOdds[o.id] !== undefined ? editOdds[o.id] : o.odds}
-                          onChange={e => setEditOdds({ ...editOdds, [o.id]: e.target.value })} />
-                        <button style={S.btnSecondary} onClick={() => {
-                          const v = parseInt(editOdds[o.id]);
-                          if (!isNaN(v)) { updateOptionOdds(m.id, o.id, v); const ne = { ...editOdds }; delete ne[o.id]; setEditOdds(ne); }
-                        }}>SET</button>
-                      </div>
-                    ))}
+
+                  {/* Max bet + pause */}
+                  <div style={{ marginTop: 10 }}>
+                    <label style={S.formLabel}>MAX BET / STATUS</label>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <input style={{ ...S.input, width: 120 }} type="number" placeholder="(none)"
+                        value={editMaxBets[m.id] !== undefined ? editMaxBets[m.id] : (m.maxBet || "")}
+                        onChange={e => setEditMaxBets({ ...editMaxBets, [m.id]: e.target.value })} />
+                      <button style={S.btnSecondary} onClick={() => {
+                        const v = parseFloat(editMaxBets[m.id]);
+                        updateMarketMaxBet(m.id, isNaN(v) ? null : v);
+                        const ne = { ...editMaxBets }; delete ne[m.id]; setEditMaxBets(ne);
+                      }}>SET MAX</button>
+                      <button style={S.btnSecondary} onClick={() => togglePauseMarket(m.id)}>
+                        {m.status === "paused" ? "REOPEN" : "PAUSE"}
+                      </button>
+                    </div>
                   </div>
-                  <button style={{ ...S.btnAccent, marginTop: 8 }}
+
+                  {/* Options */}
+                  <div style={{ marginTop: 14 }}>
+                    <label style={S.formLabel}>OPTIONS</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {(m.options || []).map(o => {
+                        const curLabel = editLabels[o.id] !== undefined ? editLabels[o.id] : o.label;
+                        const curOdds = editOdds[o.id] !== undefined ? editOdds[o.id] : o.odds;
+                        const labelDirty = editLabels[o.id] !== undefined && editLabels[o.id].trim() !== o.label;
+                        const oddsDirty = editOdds[o.id] !== undefined && parseInt(editOdds[o.id]) !== o.odds && !isNaN(parseInt(editOdds[o.id]));
+                        return (
+                          <div key={o.id} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            <input style={{ ...S.input, flex: 2, minWidth: 140 }} value={curLabel}
+                              placeholder="Option label"
+                              onChange={e => setEditLabels({ ...editLabels, [o.id]: e.target.value })} />
+                            <input style={{ ...S.input, width: 80 }} type="number" value={curOdds}
+                              onChange={e => setEditOdds({ ...editOdds, [o.id]: e.target.value })} />
+                            <button style={{ ...S.btnSecondary, opacity: (labelDirty || oddsDirty) ? 1 : 0.4 }}
+                              disabled={!(labelDirty || oddsDirty)}
+                              onClick={() => {
+                                if (labelDirty) {
+                                  updateOptionLabel(m.id, o.id, editLabels[o.id].trim());
+                                  const ne = { ...editLabels }; delete ne[o.id]; setEditLabels(ne);
+                                }
+                                if (oddsDirty) {
+                                  updateOptionOdds(m.id, o.id, parseInt(editOdds[o.id]));
+                                  const ne = { ...editOdds }; delete ne[o.id]; setEditOdds(ne);
+                                }
+                                notify("Option saved");
+                              }}>SAVE</button>
+                            <button style={S.btnAccent}
+                              onClick={() => {
+                                if ((m.options || []).length <= 2) { notify("Need 2+ options"); return; }
+                                if (window.confirm(`Remove "${o.label}"? Pending bets refunded.`)) removeMarketOption(m.id, o.id);
+                              }}>X</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Add new option */}
+                    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                      <input style={{ ...S.input, flex: 2, minWidth: 140 }} placeholder="New option label"
+                        value={addOptDraft.label}
+                        onChange={e => setAddOptInputs({ ...addOptInputs, [m.id]: { ...addOptDraft, label: e.target.value } })} />
+                      <input style={{ ...S.input, width: 80 }} type="number" placeholder="-110"
+                        value={addOptDraft.odds}
+                        onChange={e => setAddOptInputs({ ...addOptInputs, [m.id]: { ...addOptDraft, odds: e.target.value } })} />
+                      <button style={S.btnPrimary}
+                        onClick={async () => {
+                          await addMarketOption(m.id, addOptDraft.label, addOptDraft.odds);
+                          setAddOptInputs({ ...addOptInputs, [m.id]: { label: "", odds: "" } });
+                        }}>+ ADD</button>
+                    </div>
+                  </div>
+
+                  <button style={{ ...S.btnAccent, marginTop: 14 }}
                     onClick={() => { if (window.confirm(`Delete "${m.title}"? Pending stakes refunded.`)) deleteMarket(m.id); }}>
                     DELETE MARKET
                   </button>
                 </div>
               );})}
+            </div>
+          )}
+
+          {adminTab === "tags" && (
+            <div>
+              <h3 style={S.adminH3}>Tags</h3>
+              <p style={{ fontSize: 13, color: C.sub, marginTop: -8, marginBottom: 14, fontWeight: 500 }}>
+                Tags are manual. Pick one in the Edit tab when adding or editing a market. Deleting a tag clears it from any markets using it.
+              </p>
+
+              {/* Create new tag */}
+              <div style={{ ...S.adminCard, marginBottom: 16 }}>
+                <label style={S.formLabel}>CREATE NEW TAG</label>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                  <input style={{ ...S.input, flex: 1, minWidth: 140 }} placeholder="Tag name (e.g., Playoffs)"
+                    value={newTagName} onChange={e => setNewTagName(e.target.value)} />
+                  <input type="color" value={newTagColor}
+                    onChange={e => setNewTagColor(e.target.value)}
+                    style={{ width: 44, height: 36, padding: 0, border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer", background: "transparent" }} />
+                  <span style={{ ...S.catBadge, background: newTagColor }}>
+                    {(newTagName || "preview").toUpperCase()}
+                  </span>
+                  <button style={S.btnPrimary} onClick={async () => {
+                    await addNewTag(newTagName, newTagColor);
+                    setNewTagName("");
+                  }}>+ ADD TAG</button>
+                </div>
+              </div>
+
+              {/* Existing tags */}
+              <label style={S.formLabel}>EXISTING TAGS ({(tags || []).length})</label>
+              {(!tags || tags.length === 0) && (
+                <div style={{ padding: 16, color: C.sub, fontSize: 13, fontWeight: 500 }}>No tags yet. Create one above.</div>
+              )}
+              {(tags || []).map(t => {
+                const draft = editTagDraft[t.id] || { name: t.name, color: t.color };
+                const dirty = draft.name !== t.name || draft.color !== t.color;
+                const usageCount = allMarkets.filter(m => m.tagId === t.id).length;
+                return (
+                  <div key={t.id} style={S.adminCard}>
+                    <div style={{ height: 3, background: draft.color, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 10 }} />
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      <input style={{ ...S.input, flex: 1, minWidth: 140 }} value={draft.name}
+                        onChange={e => setEditTagDraft({ ...editTagDraft, [t.id]: { ...draft, name: e.target.value } })} />
+                      <input type="color" value={draft.color}
+                        onChange={e => setEditTagDraft({ ...editTagDraft, [t.id]: { ...draft, color: e.target.value } })}
+                        style={{ width: 44, height: 36, padding: 0, border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer", background: "transparent" }} />
+                      <span style={{ ...S.catBadge, background: draft.color }}>{(draft.name || "—").toUpperCase()}</span>
+                      <button style={{ ...S.btnSecondary, opacity: dirty ? 1 : 0.4 }} disabled={!dirty}
+                        onClick={async () => {
+                          await updateTagDef(t.id, { name: (draft.name || "").trim() || t.name, color: draft.color });
+                          const ne = { ...editTagDraft }; delete ne[t.id]; setEditTagDraft(ne);
+                          notify("Tag saved");
+                        }}>SAVE</button>
+                      <button style={S.btnAccent}
+                        onClick={() => {
+                          const warn = usageCount > 0
+                            ? `Delete "${t.name}"? ${usageCount} market${usageCount === 1 ? "" : "s"} will lose this tag.`
+                            : `Delete "${t.name}"?`;
+                          if (window.confirm(warn)) deleteTagDef(t.id);
+                        }}>DELETE</button>
+                    </div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 6, fontWeight: 500 }}>
+                      Used on {usageCount} market{usageCount === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -1304,13 +1578,13 @@ export default function App() {
 
               {/* FUTURES */}
               {activeTab === "futures" && displayMarkets.map(market => {
-                const meta = leagueMeta(market.subtitle);
+                const tag = getTag(market.tagId);
                 const totalMkt = (market.options || []).reduce((s, o) => s + (optionTotals[o.id] || 0), 0);
                 return (
                   <div key={market.id} style={S.eventCard}>
-                    <div style={{ height: 4, background: meta.color, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 12 }} />
+                    <div style={{ height: 4, background: tag ? tag.color : C.line, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 12 }} />
                     <div style={S.eventTop}>
-                      <span style={{ ...S.catBadge, background: meta.color }}>{meta.tag}</span>
+                      {tag && <span style={{ ...S.catBadge, background: tag.color }}>{tag.name}</span>}
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {market.maxBet && <span style={S.metaChip}>max ${market.maxBet}</span>}
                         {market.status === "paused" && <span style={{ ...S.metaChip, color: C.gold, background: "rgba(255,184,0,0.10)" }}>PAUSED</span>}
@@ -1374,7 +1648,7 @@ export default function App() {
                 }
 
                 return grouped.map(({ ml, sp, ou }) => {
-                  const meta = leagueMeta(ml.subtitle);
+                  const tag = getTag(ml.tagId);
                   const allMkts = [ml, sp, ou].filter(Boolean);
                   const anyPaused = allMkts.some(m => m.status === "paused");
                   const allSettled = allMkts.every(m => m.status === "settled");
@@ -1384,9 +1658,9 @@ export default function App() {
 
                   return (
                     <div key={ml.id} style={S.eventCard}>
-                      <div style={{ height: 4, background: meta.color, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 12 }} />
+                      <div style={{ height: 4, background: tag ? tag.color : C.line, marginLeft: -16, marginRight: -16, marginTop: -16, marginBottom: 12 }} />
                       <div style={S.eventTop}>
-                        <span style={{ ...S.catBadge, background: meta.color }}>{meta.tag}</span>
+                        {tag && <span style={{ ...S.catBadge, background: tag.color }}>{tag.name}</span>}
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           {ml.maxBet && <span style={S.metaChip}>max ${ml.maxBet}</span>}
                           {anyPaused && <span style={{ ...S.metaChip, color: C.gold, background: "rgba(255,184,0,0.10)" }}>PAUSED</span>}
@@ -1399,7 +1673,7 @@ export default function App() {
 
                       {/* Team chips */}
                       <div style={{ display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
-                        {opts[0] && <div style={S.teamRow}>{teamChip(opts[0].label, meta.color)}<span style={S.teamName}>{opts[0].label}</span></div>}
+                        {opts[0] && <div style={S.teamRow}>{teamChip(opts[0].label, tag ? tag.color : C.ink2)}<span style={S.teamName}>{opts[0].label}</span></div>}
                         {opts[1] && <div style={S.teamRow}>{teamChip(opts[1].label, C.ink2)}<span style={S.teamName}>{opts[1].label}</span></div>}
                       </div>
 
